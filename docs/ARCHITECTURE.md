@@ -1,0 +1,81 @@
+# MetroForge Architecture
+
+Decisions made 2026-07-07 with the owner. These **supersede** `docs/plans/fable-transit-game.md` wherever they conflict.
+
+## Owner decisions
+
+| Fork | Decision | Consequence |
+|---|---|---|
+| Native path | **True native rewrite later** | The web build is a *reference implementation*. The sim core is a deterministic, renderer-agnostic spec that a Rust/C++/engine client re-implements 1:1 against the same save format and command protocol. |
+| Passenger model | **Hybrid: aggregate flows + sampled visual agents** | Economics/ridership computed from origin–destination flows (scales to any city size). A bounded pool of visual agents is *sampled* from flows purely for rendering. Agents never feed back into economics. |
+| Geometry | **Continuous vector space** | Roads/tracks are polylines in continuous 2D world units (meters). No tile grid. Density, land value, and accessibility live on a coarse *field grid* used only as scalar fields, never as game geometry. |
+| Art direction | **Stylized living map** | Clean vector city, bold transit lines, animated vehicles + passenger dots. WebGL (PixiJS) viewport; React only for panels. |
+
+## Layering (hard boundaries)
+
+```
+src/core/      Deterministic simulation. Pure TypeScript.
+               NO imports from render/, app/, pixi, react, or DOM/browser APIs.
+               This directory IS the portable spec.
+src/render/    PixiJS renderer. Reads render snapshots, never mutates sim.
+src/app/       React shell, panels, Zustand mirror of UI-relevant state.
+src/host/      Sim hosting: worker host (default) + local host (fallback/tests).
+```
+
+Enforced by ESLint `no-restricted-imports` on `src/core/**`. If a change in `core/` needs a browser API, the change is wrong.
+
+## Determinism contract (what the native client must reproduce)
+
+1. **Seeded PRNG only.** All randomness flows through `core/rng.ts` (xoshiro128**, 32-bit integer state). `Math.random`, `Date.now`, `crypto` are banned in core.
+2. **Fixed timestep.** The sim advances in discrete ticks (`TICK_SECONDS = 1` game-second per tick at 1×; speed multiplies ticks-per-real-second, never dt). No frame-rate dependence.
+3. **Command-driven mutation.** The *only* way to mutate sim state is `applyCommand(state, cmd)`. UI, tutorial, events, and replays all go through the same commands. `(seed, [commands with tick stamps])` fully determines a game — this is also the replay/desync-test mechanism for validating a native port.
+4. **Ordered iteration.** Entity collections are arrays or insertion-ordered maps; no object-key-order dependence.
+5. **Float policy.** Core math is float64 with a documented restriction: no transcendental-heavy accumulation in economic totals (sums use plain +), geometry uses sqrt/atan2 only for derived display values or precomputed-at-construction constants that are stored in the save. Cross-platform float drift is contained by (a) storing construction-time derived values instead of recomputing, and (b) golden replay tests with per-tick state hashes.
+6. **Versioned saves.** `save/schema.ts` defines `SAVE_VERSION` and explicit migration functions. The save is plain JSON of core state only (no render/UI state).
+
+## Simulation model
+
+### World
+- Continuous 2D, units are **meters**, city ~12×12 km centered on origin.
+- **Field grid**: 96×96 cells (~125 m/cell) holding scalar fields per cell: `population`, `jobs`, `landValue`, `terrainHeight`, `water`, `nimby`. Fields are sampled bilinearly when point values are needed. Fields are data, not geometry.
+- **Road network**: generated polyline graph (arterial → collector → local) used for city rendering, station snapping, and bus alignment.
+
+### Demand & assignment (the hybrid core)
+- The city is partitioned into **districts** (clusters of field cells, ~150–400 of them). Demand is an origin–destination matrix over districts, regenerated when land use or network changes materially (dirty-flag, not every tick): gravity model `T_ij = k · P_i · A_j · f(cost_ij)`.
+- **Transit assignment**: build a time-expanded-ish graph — walk links (district centroid → stations within walk radius), board/alight links (wait cost = headway/2 + transfer penalty), ride links (in-vehicle time from route geometry + speed + dwell). Multi-source Dijkstra per origin district. Compare generalized transit cost vs car cost → logit mode split per OD pair.
+- Assignment yields per-route, per-segment **flow volumes** → ridership, revenue, crowding, station load. All economics derive from flows.
+- **Visual agents** (≤ ~3,000): sampled proportionally from active flows, animated along their assigned paths. Pure presentation; despawn/resample freely under camera or budget pressure. Agent positions are NOT part of the save or the determinism contract.
+
+### Vehicles
+Vehicles are simulated individually (they're few): position = distance along route polyline, dwell at stops, capacity from flow-based boarding rates. Crowding on a vehicle = flow volume on its segment / (capacity × frequency).
+
+### Time
+1 tick = 1 game-second. A game day = 20 real minutes at 1×, compressed clock with a demand curve (AM peak / midday / PM peak / night) scaling the OD matrix.
+
+## Host protocol (worker boundary = future native boundary)
+
+The sim runs in a Web Worker by default. The message protocol is deliberately the same shape a native core would expose over FFI:
+
+```
+→ init { seed, difficulty } | loadSave { json } | setSpeed { s } | command { tick?, cmd }
+← ready { staticCity }                    // geometry that never changes per-tick
+← frame { tick, renderSnapshot }          // typed-array positions: vehicles, agents
+← stateDelta { budget, stats, dirtyEntities }   // low-frequency UI data
+← saved { json }
+```
+
+`renderSnapshot` uses transferable `Float32Array`s (id, x, y, heading, occupancy per vehicle/agent) so 60 fps rendering never touches structured clone of the world. Renderer interpolates between the last two snapshots.
+
+## Rendering
+
+- PixiJS v8 (WebGL2). Layers bottom→top: terrain/water → land-use tint (field grid rendered once to a texture, re-baked on growth ticks) → roads (static Graphics, re-baked on change) → transit lines (bold polylines, route colors from a colorblind-safe palette) → stations → vehicles → agent dots → construction ghost → selection.
+- Static layers are cached (`cacheAsTexture` / render-to-texture); per-frame work is only dynamic sprites + camera transform.
+- Camera: pan (drag / middle mouse), wheel zoom 0.25×–8× toward cursor, inertial, clamped.
+
+## Save format
+
+`{ version, seed, tick, fields, roads, districts, stations, tracks, routes, vehicles, budget, stats, eventState, commandLog? }` — localStorage keys `metroforge:save:<slot>`, plus export/import as file. The optional command log enables full replay verification.
+
+## Testing
+
+- Vitest on `core/` only. Golden tests: fixed seed → generate city → hash; fixed seed + scripted commands → run 10k ticks → per-100-tick state hashes. These hashes are the acceptance suite for the future native port.
