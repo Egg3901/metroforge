@@ -406,6 +406,27 @@ export class GameRenderer {
     const city = this.city;
     if (!city) return;
     const PX = 14; // pixels per field cell in the baked texture
+    // real-city high-res masks give crisp coastlines/parks instead of the coarse,
+    // box-blurred field grid. Bilinear over the 0/1 mask → smooth but sharp edges.
+    const hiRes = city.maskRes ?? 0;
+    const hiHalf = city.worldSize / 2;
+    const sampleMask = (m: Uint8Array, wx: number, wy: number): number => {
+      const gx = ((wx + hiHalf) / city.worldSize) * hiRes - 0.5;
+      const gy = ((wy + hiHalf) / city.worldSize) * hiRes - 0.5;
+      const x0 = Math.max(0, Math.min(hiRes - 1, Math.floor(gx)));
+      const y0 = Math.max(0, Math.min(hiRes - 1, Math.floor(gy)));
+      const x1 = Math.min(hiRes - 1, x0 + 1);
+      const y1 = Math.min(hiRes - 1, y0 + 1);
+      const tx = Math.max(0, Math.min(1, gx - x0));
+      const ty = Math.max(0, Math.min(1, gy - y0));
+      const v00 = m[y0 * hiRes + x0] as number;
+      const v10 = m[y0 * hiRes + x1] as number;
+      const v01 = m[y1 * hiRes + x0] as number;
+      const v11 = m[y1 * hiRes + x1] as number;
+      return (v00 * (1 - tx) + v10 * tx) * (1 - ty) + (v01 * (1 - tx) + v11 * tx) * ty;
+    };
+    const hiWater = city.waterMask ?? null;
+    const hiPark = city.parkMask ?? null;
     const canvas = document.createElement('canvas');
     canvas.width = city.fieldW * PX;
     canvas.height = city.fieldH * PX;
@@ -471,7 +492,9 @@ export class GameRenderer {
         const fy = py / PX - 0.5;
         const cx = Math.max(0, Math.min(W - 1, Math.round(fx)));
         const cy = Math.max(0, Math.min(H - 1, Math.round(fy)));
-        const wf = bil(wsm, fx, fy); // 0..1 smoothed water mask
+        const wxw = city.originX + (px / PX) * city.cellSize;
+        const wyw = city.originY + (py / PX) * city.cellSize;
+        const wf = hiWater ? sampleMask(hiWater, wxw, wyw) : bil(wsm, fx, fy); // 0..1 water
         const elev = bil(f.terrain, fx, fy);
         let r: number, g: number, b: number;
         if (wf > 0.5) {
@@ -482,7 +505,7 @@ export class GameRenderer {
           g = 46 + shore * 24 - depth * 8;
           b = 74 + shore * 26 - depth * 10;
         } else {
-          const park = bil(f.parks, fx, fy);
+          const park = hiPark ? sampleMask(hiPark, wxw, wyw) : bil(f.parks, fx, fy);
           const pop = bil(f.population, fx, fy) / maxPop;
           const urban = Math.sqrt(Math.max(0, pop));
           const v = (hash(cx, cy) - 0.5) * 10;

@@ -10,6 +10,7 @@
 import { chromium } from 'playwright-core';
 
 const preset = process.argv[2] ?? 'boston';
+const ZOOM_STEPS = Number(process.argv[3] ?? 14);
 const URL = 'http://localhost:4180';
 
 async function main(): Promise<void> {
@@ -34,7 +35,7 @@ async function main(): Promise<void> {
   if (box) {
     const cx = box.x + box.width / 2;
     const cy = box.y + box.height / 2;
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < ZOOM_STEPS; i++) {
       await page.mouse.move(cx, cy);
       await page.mouse.wheel(0, -260);
       await page.waitForTimeout(60);

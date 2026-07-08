@@ -163,6 +163,10 @@ export interface GameState {
   flows: FlowResult[];
   /** transient: road congestion + bottlenecks, recomputed each assignment (not saved) */
   traffic?: import('./transit/traffic').TrafficField;
+  /** transient: high-res OSM water/park masks for crisp rendering (real cities only) */
+  osmWaterMask?: Uint8Array | undefined;
+  osmParkMask?: Uint8Array | undefined;
+  osmMaskRes?: number | undefined;
   budget: Budget;
   stats: CityStats;
   /** monotonic entity id counter */

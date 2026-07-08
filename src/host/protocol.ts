@@ -69,6 +69,11 @@ export interface StaticCity {
   /** road-width multiplier — dense real-city grids draw much thinner than the
    *  sparse procedural network the default widths were tuned for */
   roadScale: number;
+  /** high-res water/park masks (1=set) over the world square, for crisp
+   *  real-city coastline/park rendering; absent for procedural cities */
+  waterMask?: Uint8Array | undefined;
+  parkMask?: Uint8Array | undefined;
+  maskRes?: number | undefined;
   roads: { cls: string; points: number[] }[];
 }
 

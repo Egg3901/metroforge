@@ -34,6 +34,11 @@ export interface GeneratedCity {
   roads: RoadEdge[];
   districts: District[];
   cbd: Vec2;
+  /** high-res OSM water mask (1=water) for crisp coastline rendering, if a real
+   *  city; sim still uses the coarser fields.water */
+  waterMaskHi?: Uint8Array | undefined;
+  parkMaskHi?: Uint8Array | undefined;
+  maskRes?: number | undefined;
 }
 
 /** Drop collinear-ish points to keep polylines lean. */
@@ -82,10 +87,14 @@ export function generateCity(seed: number, difficulty: Difficulty, opts: Generat
   const waterDir = vec(Math.cos(waterAngle), Math.sin(waterAngle));
   const waterOffset = w.coastInset * HALF;
 
+  let osmWaterHi: Uint8Array | undefined;
+  let osmParkHi: Uint8Array | undefined;
   if (osm) {
     // real-city land/water/parks from the baked OSM masks; gentle procedural relief
     const mask = decodeB64Mask(osm.waterMask);
     const pmask = osm.parkMask ? decodeB64Mask(osm.parkMask) : null;
+    osmWaterHi = mask;
+    osmParkHi = pmask ?? undefined;
     for (let cy = 0; cy < fields.h; cy++) {
       for (let cx = 0; cx < fields.w; cx++) {
         const i = cy * fields.w + cx;
@@ -529,5 +538,5 @@ export function generateCity(seed: number, difficulty: Difficulty, opts: Generat
     (districts[i] as District).name = names[i] as string;
   }
 
-  return { fields, roads, districts, cbd };
+  return { fields, roads, districts, cbd, waterMaskHi: osmWaterHi, parkMaskHi: osmParkHi, maskRes: osm ? osm.maskRes : undefined };
 }

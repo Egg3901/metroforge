@@ -15,7 +15,7 @@ import { encodePng } from './png';
 
 const WORLD = 12000; // fit each city into a 12km square (matches medium map)
 const HALF = WORLD / 2;
-const MASK_RES = 220; // water bitmask resolution over the world square
+const MASK_RES = 320; // water/park bitmask resolution over the world square
 
 interface CityCfg {
   key: string;

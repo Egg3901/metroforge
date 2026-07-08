@@ -39,6 +39,9 @@ function sendStatic(s: GameState): void {
       worldSize: s.fields.w * s.fields.cellSize,
       // dense real-city imports have ~5-10k roads; thin them right down
       roadScale: s.roads.length > 3000 ? 0.28 : s.roads.length > 1500 ? 0.5 : 1,
+      waterMask: s.osmWaterMask,
+      parkMask: s.osmParkMask,
+      maskRes: s.osmMaskRes,
       roads: s.roads.map((r) => ({
         cls: r.cls,
         points: r.polyline.points.flatMap((p) => [p.x, p.y]),
