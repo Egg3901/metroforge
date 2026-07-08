@@ -12,6 +12,14 @@ import type { District, Difficulty, FieldGrid, RoadEdge } from '../types';
 
 const HALF = WORLD_SIZE / 2;
 
+/** Signed smallest angle from b to a. */
+function angleDelta(a: number, b: number): number {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
 export interface GeneratedCity {
   fields: FieldGrid;
   roads: RoadEdge[];
@@ -47,6 +55,45 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
     }
   }
 
+  // ── River: meanders from an inland edge downhill to the sea ──
+  {
+    // pick the inland edge (opposite the coast direction)
+    const startAngle = waterAngle + Math.PI + rng.range(-0.5, 0.5);
+    let px = Math.cos(startAngle) * HALF * 0.95;
+    let py = Math.sin(startAngle) * HALF * 0.95;
+    let dirAngle = Math.atan2(-py, -px); // head toward map center
+    const meander = rng.range(2, 5);
+    for (let step = 0; step < 400; step++) {
+      // stamp river width ~1.5 cells
+      const ci = cellIndexAt(fields, vec(px, py));
+      const cx0 = ci % fields.w;
+      const cy0 = Math.floor(ci / fields.w);
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          if (Math.abs(ox) + Math.abs(oy) > 1 && !(rng.next() < 0.4)) continue;
+          const nx = cx0 + ox;
+          const ny = cy0 + oy;
+          if (nx >= 0 && ny >= 0 && nx < fields.w && ny < fields.h) {
+            fields.water[ny * fields.w + nx] = 1;
+            fields.terrain[ny * fields.w + nx] = Math.min(fields.terrain[ny * fields.w + nx] as number, 0.2);
+          }
+        }
+      }
+      if ((fields.water[ci] as number) === 1 && step > 30) {
+        // reached the sea (we're in pre-existing water away from the source)
+        const coastDist = px * waterDir.x + py * waterDir.y - waterOffset;
+        if (coastDist > -600) break;
+      }
+      // steer: toward the coast + meander sine + slight noise
+      const toCoast = Math.atan2(waterDir.y, waterDir.x);
+      const wiggle = Math.sin(step / 14) * 0.5 * Math.sin(meander + step / 40);
+      dirAngle += (angleDelta(toCoast, dirAngle)) * 0.035 + wiggle * 0.14 + rng.range(-0.08, 0.08);
+      px += Math.cos(dirAngle) * 95;
+      py += Math.sin(dirAngle) * 95;
+      if (Math.abs(px) > HALF || Math.abs(py) > HALF) break;
+    }
+  }
+
   // ── CBD placement: on land, biased toward the water body (port cities) ──
   let cbd = vec(0, 0);
   {
@@ -78,8 +125,25 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
       a += rng.range(-wobble, wobble);
       const next = vec(p.x + Math.cos(a) * step, p.y + Math.sin(a) * step);
       if (Math.abs(next.x) > HALF * 0.98 || Math.abs(next.y) > HALF * 0.98) break;
-      // deflect along coastlines rather than plunging in
       if ((fields.water[cellIndexAt(fields, next)] as number) === 1) {
+        // short span (a river): bridge straight across; wide water: deflect
+        let landAt = -1;
+        for (let look = 1; look <= 5; look++) {
+          const probe = vec(p.x + Math.cos(a) * step * look, p.y + Math.sin(a) * step * look);
+          if (Math.abs(probe.x) > HALF * 0.98 || Math.abs(probe.y) > HALF * 0.98) break;
+          if ((fields.water[cellIndexAt(fields, probe)] as number) === 0) {
+            landAt = look;
+            break;
+          }
+        }
+        if (landAt > 0) {
+          // bridge: jump straight to the far bank
+          const far = vec(p.x + Math.cos(a) * step * landAt, p.y + Math.sin(a) * step * landAt);
+          pts.push(far);
+          p = far;
+          d += step * (landAt - 1);
+          continue;
+        }
         a += rng.chance(0.5) ? 0.5 : -0.5;
         continue;
       }
@@ -207,6 +271,39 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
     fields.jobs[i] = ((rawJobs[i] as number) / rawJobsSum) * jobsTarget;
   }
 
+  // ── Parks: noise pockets + a couple of big signature parks near the core ──
+  {
+    for (let i = 0; i < fields.parks.length; i++) {
+      if ((fields.water[i] as number) === 1) continue;
+      const c = cellCenter(fields, i);
+      const n = detailNoise.fbm(c.x / 1400 + 300, c.y / 1400 + 300, 3);
+      const dCbd = Math.hypot(c.x - cbd.x, c.y - cbd.y);
+      if (n > 0.66 && dCbd > 700) fields.parks[i] = 1;
+    }
+    // signature parks (Central-Park-ish rectangles near, not on, the CBD)
+    const bigParks = rng.int(1, 2);
+    for (let k = 0; k < bigParks; k++) {
+      const ang = rng.range(0, Math.PI * 2);
+      const cx0 = cbd.x + Math.cos(ang) * rng.range(1200, 2400);
+      const cy0 = cbd.y + Math.sin(ang) * rng.range(1200, 2400);
+      const w = rng.range(500, 900);
+      const h = rng.range(350, 650);
+      for (let i = 0; i < fields.parks.length; i++) {
+        const c = cellCenter(fields, i);
+        if (Math.abs(c.x - cx0) < w / 2 && Math.abs(c.y - cy0) < h / 2 && (fields.water[i] as number) === 0) {
+          fields.parks[i] = 1;
+        }
+      }
+    }
+    // parks displace residents/jobs
+    for (let i = 0; i < fields.parks.length; i++) {
+      if ((fields.parks[i] as number) === 1) {
+        fields.population[i] = 0;
+        fields.jobs[i] = 0;
+      }
+    }
+  }
+
   // ── Local street grids: patchwork of oriented grids where people live ──
   // Each 1 km neighborhood gets a grid orientation (snapped noise) and a
   // spacing tied to density; streets form real blocks instead of squiggles.
@@ -215,8 +312,10 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
     const meanCellPop = target / (fields.w * fields.h);
     const densityAt = (p: Vec2): number => {
       const i = cellIndexAt(fields, p);
-      return (fields.water[i] as number) === 1 ? -1 : (fields.population[i] as number) / meanCellPop;
+      if ((fields.water[i] as number) === 1 || (fields.parks[i] as number) === 1) return -1;
+      return ((fields.population[i] as number) + (fields.jobs[i] as number)) / meanCellPop;
     };
+    const cbdTheta = Math.round(rng.range(0, Math.PI) / (Math.PI / 12)) * (Math.PI / 12);
     for (let hy = -HALF; hy < HALF; hy += HOOD) {
       for (let hx = -HALF; hx < HALF; hx += HOOD) {
         const center = vec(hx + HOOD / 2, hy + HOOD / 2);
@@ -227,12 +326,15 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
         }
         dens /= 5;
         if (dens < 0.5) continue;
-        // orientation: smooth noise snapped to 15° so neighboring hoods line up
+        // orientation: downtown shares one grid; elsewhere smooth noise snapped
+        // to 15° so neighboring hoods line up
+        const dCbdHood = Math.hypot(center.x - cbd.x, center.y - cbd.y);
+        const downtown = dCbdHood < 1600;
         const rawTheta = detailNoise.at(center.x / 4200 + 200, center.y / 4200 + 200) * Math.PI;
-        const theta = Math.round(rawTheta / (Math.PI / 12)) * (Math.PI / 12);
+        const theta = downtown ? cbdTheta : Math.round(rawTheta / (Math.PI / 12)) * (Math.PI / 12);
         const cosT = Math.cos(theta);
         const sinT = Math.sin(theta);
-        const spacing = dens > 2.5 ? 95 : dens > 1.2 ? 120 : 155;
+        const spacing = downtown ? 85 : dens > 2.5 ? 100 : dens > 1.2 ? 125 : 160;
         const R = HOOD * 0.75; // cover the hood incl. rotation overhang
         for (const dir of [0, 1] as const) {
           // dir 0: lines along (cosT,sinT); dir 1: perpendicular

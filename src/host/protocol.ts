@@ -73,7 +73,9 @@ export interface FieldsPayload {
   version: number;
   terrain: Float32Array;
   water: Uint8Array;
+  parks: Uint8Array;
   population: Float32Array;
+  jobs: Float32Array;
   landValue: Float32Array;
 }
 

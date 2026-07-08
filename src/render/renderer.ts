@@ -46,6 +46,7 @@ export class GameRenderer {
   private city: StaticCity | null = null;
   private ui: UiState | null = null;
   private lastFieldsVersion = -1;
+  private fieldsPayload: FieldsPayload | null = null;
   private frame: FrameSnapshot | null = null;
   ghost: GhostState = { kind: 'none', points: [], valid: true, cost: null, mode: 'bus' };
 
@@ -90,7 +91,9 @@ export class GameRenderer {
   setFields(payload: FieldsPayload): void {
     if (!this.city || payload.version === this.lastFieldsVersion) return;
     this.lastFieldsVersion = payload.version;
+    this.fieldsPayload = payload;
     this.bakeGround(payload);
+    this.drawBuildings();
   }
 
   setUi(ui: UiState): void {
@@ -238,39 +241,117 @@ export class GameRenderer {
 
     let maxPop = 1;
     for (let i = 0; i < f.population.length; i++) maxPop = Math.max(maxPop, f.population[i] as number);
+    const W = city.fieldW;
+    const H = city.fieldH;
+    const isWater = (cx: number, cy: number): boolean =>
+      cx >= 0 && cy >= 0 && cx < W && cy < H && (f.water[cy * W + cx] as number) === 1;
+    // stable per-cell hash for forest/texture variation
+    const hash = (x: number, y: number): number => {
+      let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0;
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+    };
 
-    for (let cy = 0; cy < city.fieldH; cy++) {
-      for (let cx = 0; cx < city.fieldW; cx++) {
-        const i = cy * city.fieldW + cx;
-        let r: number, g: number, b: number;
-        if ((f.water[i] as number) === 1) {
-          r = 16; g = 26; b = 42; // deep water
-        } else {
-          const elev = f.terrain[i] as number;
-          const pop = (f.population[i] as number) / maxPop; // 0..1
-          const lv = Math.min(1, (f.landValue[i] as number) / 2);
-          // base ground: dark warm gray, slightly lighter with elevation
-          r = 26 + elev * 16;
-          g = 26 + elev * 15;
-          b = 28 + elev * 12;
-          // population: warm urban-fabric lift — reads as the city footprint zoomed out
-          const p2 = Math.sqrt(pop);
-          r += p2 * 88;
-          g += p2 * 64;
-          b += p2 * 30;
-          // land value: faint cool sheen
-          b += lv * 12;
+    // per-pixel bilinear sampling → smooth shorelines and gradients
+    const bil = (arr: Float32Array | Uint8Array, fx: number, fy: number): number => {
+      const x0 = Math.max(0, Math.min(W - 1, Math.floor(fx)));
+      const y0 = Math.max(0, Math.min(H - 1, Math.floor(fy)));
+      const x1 = Math.min(W - 1, x0 + 1);
+      const y1 = Math.min(H - 1, y0 + 1);
+      const tx = Math.max(0, Math.min(1, fx - x0));
+      const ty = Math.max(0, Math.min(1, fy - y0));
+      const v00 = arr[y0 * W + x0] as number;
+      const v10 = arr[y0 * W + x1] as number;
+      const v01 = arr[y1 * W + x0] as number;
+      const v11 = arr[y1 * W + x1] as number;
+      return (v00 * (1 - tx) + v10 * tx) * (1 - ty) + (v01 * (1 - tx) + v11 * tx) * ty;
+    };
+    void isWater;
+    // pre-smooth the binary water mask so shorelines curve instead of stair-step
+    let wsm = Float32Array.from(f.water);
+    for (let pass = 0; pass < 2; pass++) {
+      const next = new Float32Array(wsm.length);
+      for (let cy = 0; cy < H; cy++) {
+        for (let cx = 0; cx < W; cx++) {
+          let sum = 0;
+          let cnt = 0;
+          for (let oy = -1; oy <= 1; oy++) {
+            for (let ox = -1; ox <= 1; ox++) {
+              const nx = cx + ox;
+              const ny = cy + oy;
+              if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+              sum += wsm[ny * W + nx] as number;
+              cnt++;
+            }
+          }
+          next[cy * W + cx] = sum / cnt;
         }
-        ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
-        ctx.fillRect(cx * PX, cy * PX, PX, PX);
+      }
+      wsm = next;
+    }
+
+    const img = ctx.createImageData(W * PX, H * PX);
+    const data = img.data;
+    for (let py = 0; py < H * PX; py++) {
+      for (let px = 0; px < W * PX; px++) {
+        const fx = px / PX - 0.5;
+        const fy = py / PX - 0.5;
+        const cx = Math.max(0, Math.min(W - 1, Math.round(fx)));
+        const cy = Math.max(0, Math.min(H - 1, Math.round(fy)));
+        const wf = bil(wsm, fx, fy); // 0..1 smoothed water mask
+        const elev = bil(f.terrain, fx, fy);
+        let r: number, g: number, b: number;
+        if (wf > 0.5) {
+          // water: shallow near the 0.5 shoreline, deeper further out
+          const shore = Math.max(0, 1 - (wf - 0.5) / 0.3);
+          const depth = Math.max(0, Math.min(1, 1 - elev / 0.25));
+          r = 20 + shore * 16;
+          g = 46 + shore * 24 - depth * 8;
+          b = 74 + shore * 26 - depth * 10;
+        } else {
+          const park = bil(f.parks, fx, fy);
+          const pop = bil(f.population, fx, fy) / maxPop;
+          const urban = Math.sqrt(Math.max(0, pop));
+          const v = (hash(cx, cy) - 0.5) * 10;
+          // natural land: grass greens, drier on high ground
+          r = 38 + elev * 26 + v;
+          g = 70 + elev * 12 + v;
+          b = 38 + elev * 8 + v;
+          if (urban < 0.25 && hash(cx * 3 + 7, cy * 3 + 11) > 0.55) {
+            r -= 14;
+            g -= 8;
+            b -= 10;
+          }
+          // beach band just above the shoreline
+          if (wf > 0.28 && elev < 0.3) {
+            const t = (wf - 0.28) / 0.22;
+            r = r * (1 - t) + (118 + v) * t;
+            g = g * (1 - t) + (106 + v) * t;
+            b = b * (1 - t) + (76 + v) * t;
+          }
+          // urban fabric blend
+          const ur = 96 + elev * 10;
+          const ug = 88 + elev * 10;
+          const ub = 74 + elev * 8;
+          r = r * (1 - urban) + ur * urban;
+          g = g * (1 - urban) + ug * urban;
+          b = b * (1 - urban) + ub * urban;
+          // park overlay (smooth-edged)
+          if (park > 0.25) {
+            const t = Math.min(1, (park - 0.25) / 0.5);
+            r = r * (1 - t) + (44 + v) * t;
+            g = g * (1 - t) + (78 + v) * t;
+            b = b * (1 - t) + (48 + v) * t;
+          }
+        }
+        const o = (py * W * PX + px) * 4;
+        data[o] = r;
+        data[o + 1] = g;
+        data[o + 2] = b;
+        data[o + 3] = 255;
       }
     }
-    // soften cell edges lightly
-    ctx.filter = 'blur(1px)';
-    ctx.globalAlpha = 0.7;
-    ctx.drawImage(canvas, 0, 0);
-    ctx.filter = 'none';
-    ctx.globalAlpha = 1;
+    ctx.putImageData(img, 0, 0);
 
     const tex = Texture.from(canvas);
     if (this.groundSprite) {
@@ -301,11 +382,11 @@ export class GameRenderer {
       lg.moveTo(pts[0] as number, pts[1] as number);
       for (let i = 2; i < pts.length; i += 2) lg.lineTo(pts[i] as number, pts[i + 1] as number);
     }
-    lg.stroke({ width: 12, color: 0x17171b, cap: 'round' });
+    lg.stroke({ width: 12, color: 0x4a4842, cap: 'round' });
 
     const classes: { cls: string; casing: number; fill: number; casingColor: number; fillColor: number }[] = [
-      { cls: 'collector', casing: 30, fill: 20, casingColor: 0x131317, fillColor: 0x4a4a54 },
-      { cls: 'arterial', casing: 54, fill: 40, casingColor: 0x131317, fillColor: 0x5c5c68 },
+      { cls: 'collector', casing: 30, fill: 20, casingColor: 0x2b2a26, fillColor: 0x807e76 },
+      { cls: 'arterial', casing: 54, fill: 40, casingColor: 0x2b2a26, fillColor: 0x9a988e },
     ];
     for (const spec of classes) {
       for (const pass of ['casing', 'fill'] as const) {
@@ -340,7 +421,17 @@ export class GameRenderer {
       h = Math.imul(h ^ (h >>> 13), 1274126177);
       return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
     };
-    const palette = [0x4f4a41, 0x575147, 0x49443c, 0x5d564b, 0x524c43];
+    const housePalette = [0x5c554a, 0x665e50, 0x554e44, 0x6d6456, 0x60584c];
+    const towerPalette = [0x686d78, 0x717682, 0x5e636e, 0x7b808c];
+    const f = this.fieldsPayload;
+    // sample land use to size buildings: towers where jobs dominate, houses elsewhere
+    const landUseAt = (x: number, y: number): { jobs: number; pop: number } => {
+      if (!f) return { jobs: 0, pop: 0 };
+      const cx2 = Math.max(0, Math.min(city.fieldW - 1, Math.floor((x - city.originX) / city.cellSize)));
+      const cy2 = Math.max(0, Math.min(city.fieldH - 1, Math.floor((y - city.originY) / city.cellSize)));
+      const i = cy2 * city.fieldW + cx2;
+      return { jobs: f.jobs[i] as number, pop: f.population[i] as number };
+    };
     for (const road of city.roads) {
       if (road.cls !== 'local') continue;
       const pts = road.points;
@@ -358,12 +449,14 @@ export class GameRenderer {
       for (let d = 22; d < len - 22; d += 34) {
         const px = ax + ux * d;
         const py = ay + uy * d;
+        const use = landUseAt(px, py);
+        const towerness = Math.min(1, use.jobs / 60); // CBD cells run 100+ jobs
         for (const side of [-1, 1]) {
           const r = hash(px * side, py + side);
-          if (r < 0.25) continue; // vacant lots
-          const setback = 16 + r * 8;
-          const w = 14 + ((r * 7919) % 1) * 12; // along street
-          const h = 12 + ((r * 104729) % 1) * 16; // depth
+          if (r < 0.25 - towerness * 0.15) continue; // vacant lots, fewer downtown
+          const setback = 16 + r * 8 - towerness * 6;
+          const w = 14 + ((r * 7919) % 1) * 12 + towerness * 14; // along street
+          const h = 12 + ((r * 104729) % 1) * 16 + towerness * 16; // depth
           const cxp = px + nx * side * (setback + h / 2);
           const cyp = py + ny * side * (setback + h / 2);
           // axis-aligned to the street: draw as rotated quad
@@ -375,7 +468,8 @@ export class GameRenderer {
             cxp + ux * hw + nx * hh, cyp + uy * hw + ny * hh,
             cxp - ux * hw + nx * hh, cyp - uy * hw + ny * hh,
           ]);
-          g.fill({ color: palette[(r * 5) | 0] ?? 0x3a3630 });
+          const pal = towerness > 0.45 ? towerPalette : housePalette;
+          g.fill({ color: pal[(r * pal.length) | 0] ?? 0x5c554a });
         }
       }
     }
@@ -473,7 +567,7 @@ export class GameRenderer {
     );
     this.labels.visible = this.scale > 0.12;
     // LOD: local streets & buildings fade in as you zoom toward street level
-    const lodT = Math.max(0, Math.min(1, (this.scale - 0.13) / 0.12));
+    const lodT = Math.max(0, Math.min(1, (this.scale - 0.075) / 0.09));
     this.localRoadsG.visible = lodT > 0;
     this.localRoadsG.alpha = lodT;
     this.buildingsG.visible = lodT > 0;

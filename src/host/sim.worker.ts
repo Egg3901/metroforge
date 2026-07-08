@@ -52,7 +52,9 @@ function sendFields(s: GameState): void {
       version: fieldsVersion,
       terrain: Float32Array.from(s.fields.terrain),
       water: Uint8Array.from(s.fields.water),
+      parks: Uint8Array.from(s.fields.parks),
       population: Float32Array.from(s.fields.population),
+      jobs: Float32Array.from(s.fields.jobs),
       landValue: Float32Array.from(s.fields.landValue),
     },
   });

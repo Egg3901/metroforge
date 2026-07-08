@@ -18,6 +18,7 @@ export interface FieldGrid {
   originY: number;
   terrain: Float32Array; // elevation 0..1
   water: Uint8Array; // 0|1
+  parks: Uint8Array; // 0|1 — green space, unbuildable-by-city, renders as park
   population: Float32Array; // residents per cell
   jobs: Float32Array; // jobs per cell
   landValue: Float32Array; // relative 0..~3

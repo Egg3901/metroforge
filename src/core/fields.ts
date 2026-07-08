@@ -13,6 +13,7 @@ export function createFieldGrid(): FieldGrid {
     originY: -WORLD_SIZE / 2,
     terrain: new Float32Array(n),
     water: new Uint8Array(n),
+    parks: new Uint8Array(n),
     population: new Float32Array(n),
     jobs: new Float32Array(n),
     landValue: new Float32Array(n),
@@ -66,6 +67,7 @@ export function fieldsToJSON(g: FieldGrid): object {
     originY: g.originY,
     terrain: Array.from(g.terrain),
     water: Array.from(g.water),
+    parks: Array.from(g.parks),
     population: Array.from(g.population),
     jobs: Array.from(g.jobs),
     landValue: Array.from(g.landValue),
@@ -75,7 +77,7 @@ export function fieldsToJSON(g: FieldGrid): object {
 
 export function fieldsFromJSON(o: {
   w: number; h: number; cellSize: number; originX: number; originY: number;
-  terrain: number[]; water: number[]; population: number[]; jobs: number[];
+  terrain: number[]; water: number[]; parks?: number[]; population: number[]; jobs: number[];
   landValue: number[]; nimby: number[];
 }): FieldGrid {
   return {
@@ -86,6 +88,7 @@ export function fieldsFromJSON(o: {
     originY: o.originY,
     terrain: Float32Array.from(o.terrain),
     water: Uint8Array.from(o.water),
+    parks: Uint8Array.from(o.parks ?? new Array(o.water.length).fill(0)),
     population: Float32Array.from(o.population),
     jobs: Float32Array.from(o.jobs),
     landValue: Float32Array.from(o.landValue),
