@@ -11,7 +11,8 @@ import { chromium } from 'playwright-core';
 
 const preset = process.argv[2] ?? 'boston';
 const ZOOM_STEPS = Number(process.argv[3] ?? 14);
-const URL = 'http://localhost:4180';
+const DEMO = process.argv.includes('demo');
+const URL = 'http://localhost:4180' + (DEMO ? '/?dev=1' : '');
 
 async function main(): Promise<void> {
   const browser = await chromium.launch({
@@ -26,6 +27,31 @@ async function main(): Promise<void> {
   await page.getByRole('button', { name: new RegExp(preset === 'nyc' ? 'New York' : preset, 'i') }).first().click();
   await page.getByRole('button', { name: /Found a Transit Authority/i }).click();
   await page.waitForTimeout(5000); // worker init + OSM load + first render
+
+  if (DEMO) {
+    // build a couple of demo transit lines via the exposed sim client
+    const built = await page.evaluate(async () => {
+      const client = (window as unknown as { __mf?: any }).__mf;
+      if (!client) return 'no client';
+      const line = async (mode: string, pts: [number, number][]) => {
+        const ids: number[] = [];
+        for (const [x, y] of pts) {
+          const r = await client.command({ kind: 'buildStation', mode, pos: { x, y } });
+          if (r.ok && r.createdId != null) ids.push(r.createdId);
+        }
+        for (let i = 0; i + 1 < ids.length; i++) {
+          await client.command({ kind: 'buildTrack', mode, grade: 'surface', fromStationId: ids[i], toStationId: ids[i + 1], waypoints: [] });
+        }
+        if (ids.length >= 2) await client.command({ kind: 'createRoute', mode, stationIds: ids });
+        return ids.length;
+      };
+      const a = await line('bus', [[-3200, -400], [-1600, 100], [0, -200], [1600, 300], [3200, -100]]);
+      const b = await line('bus', [[-200, -3000], [200, -1200], [0, 200], [-400, 1600], [200, 3000]]);
+      return `bus lines: ${a}, ${b} stations`;
+    });
+    console.log('demo:', built);
+    await page.waitForTimeout(2500);
+  }
 
   await page.screenshot({ path: `grader/shot-${preset}-overview.png` });
 

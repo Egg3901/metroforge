@@ -40,6 +40,12 @@ export function GameCanvas(): React.JSX.Element {
         hoverRef.current = { x, y };
         updateGhost();
       };
+
+      // dev-only: expose the sim client so the screenshot harness can build a
+      // demo network to verify transit rendering (?dev in the URL).
+      if (new URLSearchParams(location.search).has('dev')) {
+        (window as unknown as { __mf?: unknown }).__mf = client;
+      }
     });
 
     const nearestStation = (x: number, y: number, maxDist: number, mode?: string): number | null => {

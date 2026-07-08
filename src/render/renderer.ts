@@ -757,11 +757,11 @@ export class GameRenderer {
       if (pts.length < 4) continue;
       g.moveTo(pts[0] as number, pts[1] as number);
       for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i] as number, pts[i + 1] as number);
-      const base = MODE_STATION_COLOR[t.mode];
+      // subtle infrastructure line under the bold route; the route is the hero
       g.stroke({
-        width: t.mode === 'bus' ? 16 : 24,
-        color: base,
-        alpha: t.grade === 'tunnel' ? 0.35 : 0.55,
+        width: t.mode === 'bus' ? 5 : 8,
+        color: MODE_STATION_COLOR[t.mode],
+        alpha: t.grade === 'tunnel' ? 0.18 : 0.28,
         cap: 'round',
         join: 'round',
       });
@@ -774,22 +774,45 @@ export class GameRenderer {
     g.clear();
     if (!ui) return;
     const stationById = new Map(ui.stations.map((s) => [s.id, s]));
-    // parallel offset per route index so overlapping routes read as separate lines
-    ui.routes.forEach((r, idx) => {
-      const offset = (idx % 5) * 14 - 28;
-      const pts: { x: number; y: number }[] = [];
-      for (const sid of r.stationIds) {
-        const s = stationById.get(sid);
-        if (s) pts.push({ x: s.x, y: s.y + offset });
+    // track geometry keyed by station pair (both directions) so routes follow the
+    // real road/rail path instead of cutting straight across the map
+    const trackByPair = new Map<string, number[]>();
+    for (const t of ui.tracks) {
+      trackByPair.set(`${t.fromStationId}:${t.toStationId}`, t.points);
+      const rev: number[] = [];
+      for (let i = t.points.length - 2; i >= 0; i -= 2) rev.push(t.points[i] as number, t.points[i + 1] as number);
+      trackByPair.set(`${t.toStationId}:${t.fromStationId}`, rev);
+    }
+    const strokePath = (path: number[], w: number, color: number | string, alpha: number): void => {
+      g.moveTo(path[0] as number, path[1] as number);
+      for (let i = 2; i < path.length; i += 2) g.lineTo(path[i] as number, path[i + 1] as number);
+      g.stroke({ width: w, color, alpha, cap: 'round', join: 'round' });
+    };
+    for (const r of ui.routes) {
+      const path: number[] = [];
+      for (let i = 0; i + 1 < r.stationIds.length; i++) {
+        const a = r.stationIds[i] as number;
+        const b = r.stationIds[i + 1] as number;
+        const seg = trackByPair.get(`${a}:${b}`);
+        if (seg && seg.length >= 4) {
+          if (path.length === 0) path.push(seg[0] as number, seg[1] as number);
+          for (let j = 2; j < seg.length; j += 2) path.push(seg[j] as number, seg[j + 1] as number);
+        } else {
+          const sa = stationById.get(a);
+          const sb = stationById.get(b);
+          if (sa && sb) {
+            if (path.length === 0) path.push(sa.x, sa.y);
+            path.push(sb.x, sb.y);
+          }
+        }
       }
-      if (pts.length < 2) return;
-      for (const pass of ['casing', 'line'] as const) {
-        g.moveTo((pts[0] as { x: number }).x, (pts[0] as { y: number }).y);
-        for (let i = 1; i < pts.length; i++) g.lineTo((pts[i] as { x: number }).x, (pts[i] as { y: number }).y);
-        if (pass === 'casing') g.stroke({ width: 30, color: 0x0c0c10, alpha: 0.8, cap: 'round', join: 'round' });
-        else g.stroke({ width: 18, color: r.color, alpha: 1, cap: 'round', join: 'round' });
-      }
-    });
+      if (path.length < 4) continue;
+      // hero treatment: soft glow → dark casing → bright line
+      strokePath(path, 44, r.color, 0.08);
+      strokePath(path, 28, r.color, 0.16);
+      strokePath(path, 22, PAL.void, 0.9);
+      strokePath(path, 12, r.color, 1);
+    }
   }
 
   private drawStations(): void {
@@ -800,7 +823,10 @@ export class GameRenderer {
     if (!ui) return;
     for (const s of ui.stations) {
       const color = MODE_STATION_COLOR[s.mode];
-      const size = 44 + s.level * 8;
+      const size = 30 + s.level * 6;
+      // soft glow halo so interchanges read as bright nodes on the dark map
+      g.circle(s.x, s.y, size * 1.7);
+      g.fill({ color, alpha: 0.14 });
       // distinct shapes per mode
       if (s.mode === 'bus') g.circle(s.x, s.y, size);
       else if (s.mode === 'tram') g.poly([s.x, s.y - size, s.x + size, s.y, s.x, s.y + size, s.x - size, s.y]);
@@ -813,16 +839,16 @@ export class GameRenderer {
         }
         g.poly(hex);
       }
-      g.fill({ color: 0xf4f4f5 });
-      g.stroke({ width: 14, color });
+      g.fill({ color: PAL.station });
+      g.stroke({ width: 9, color });
 
       const label = new Text({
         text: s.name,
-        style: { fontFamily: 'system-ui, sans-serif', fontSize: 64, fill: 0xd4d4d8, stroke: { color: 0x0c0c10, width: 8 } },
+        style: { fontFamily: 'system-ui, sans-serif', fontWeight: '600', fontSize: 64, fill: PAL.labelText, stroke: { color: PAL.labelHalo, width: 10 } },
       });
       label.anchor.set(0.5, 0);
       label.x = s.x;
-      label.y = s.y + size + 16;
+      label.y = s.y + size + 14;
       label.scale.set(0.5);
       this.labels.addChild(label);
     }
@@ -896,17 +922,17 @@ export class GameRenderer {
         }
       }
 
-      // agents: tiny dots
+      // passengers: small elegant motes — riders warm, walkers dim
       const ag = this.agentsG;
       ag.clear();
-      if (this.scale > 0.06) {
-        const r = Math.max(8, 12 / Math.sqrt(this.scale));
+      if (this.scale > 0.07) {
+        const r = Math.max(4, 7 / Math.sqrt(this.scale));
         for (let i = 0; i < f.agentCount; i++) {
           const x = f.agents[i * 3] as number;
           const y = f.agents[i * 3 + 1] as number;
           const phase = f.agents[i * 3 + 2] as number;
-          ag.circle(x, y, r);
-          ag.fill({ color: phase === 1 ? 0xfff3bf : 0x9aa0aa, alpha: phase === 1 ? 0.9 : 0.55 });
+          ag.circle(x, y, phase === 1 ? r : r * 0.8);
+          ag.fill({ color: phase === 1 ? 0xffe8a3 : 0x8b93a0, alpha: phase === 1 ? 0.85 : 0.4 });
         }
       }
     }
