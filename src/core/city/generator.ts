@@ -87,7 +87,9 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
     let py = Math.sin(startAngle) * HALF * 0.95;
     let dirAngle = Math.atan2(-py, -px);
     const meander = rng.range(2, 5);
-    for (let step = 0; step < 400; step++) {
+    let reachedSea = false;
+    let step = 0;
+    for (; step < 400; step++) {
       const ci = cellIndexAt(fields, vec(px, py));
       const cx0 = ci % fields.w;
       const cy0 = Math.floor(ci / fields.w);
@@ -104,14 +106,32 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
       }
       if ((fields.water[ci] as number) === 1 && step > 30) {
         const coastDist = px * waterDir.x + py * waterDir.y - waterOffset;
-        if (coastDist > -600) break;
+        if (coastDist > -600) {
+          reachedSea = true;
+          break;
+        }
       }
       const toCoast = Math.atan2(waterDir.y, waterDir.x);
       const wiggle = Math.sin(step / 14) * 0.5 * Math.sin(meander + step / 40);
       dirAngle += angleDelta(toCoast, dirAngle) * 0.035 + wiggle * 0.14 + rng.range(-0.08, 0.08);
       px += Math.cos(dirAngle) * 95;
       py += Math.sin(dirAngle) * 95;
-      if (Math.abs(px) > HALF || Math.abs(py) > HALF) break;
+      if (Math.abs(px) > HALF || Math.abs(py) > HALF) {
+        reachedSea = true; // flows off-map: fine
+        break;
+      }
+    }
+    if (!reachedSea) {
+      // rivers should end somewhere: stamp a terminal lake
+      const lakeR = rng.range(350, 600);
+      for (let i = 0; i < fields.water.length; i++) {
+        const c = cellCenter(fields, i);
+        const d = Math.hypot(c.x - px, c.y - py);
+        if (d < lakeR * (0.75 + 0.25 * detailNoise.at(c.x / 900 + 77, c.y / 900 + 77))) {
+          fields.water[i] = 1;
+          fields.terrain[i] = Math.min(fields.terrain[i] as number, 0.18);
+        }
+      }
     }
   }
 
@@ -290,18 +310,18 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
 
   // ── Locals: dense streamlines through populated land, spacing by density ──
   const localSeeds: Vec2[] = [cbd, ...subcenters];
-  for (let k = 0; k < 80; k++) {
+  for (let k = 0; k < 140; k++) {
     const cand = vec(rng.range(-HALF * 0.9, HALF * 0.9), rng.range(-HALF * 0.9, HALF * 0.9));
-    if (densityAt(cand) > 0.5) localSeeds.push(cand);
+    if (densityAt(cand) > 0.35) localSeeds.push(cand);
   }
   const arterialSamples: Vec2[] = [];
   for (const line of arterials) for (const p of line) arterialSamples.push(p);
   const locals = traceStreamlines(field, rng.fork(13), {
     separation: (p) => {
       const d = densityAt(p);
-      return d > 2.5 ? 100 : d > 1.2 ? 130 : 170;
+      return d > 2.5 ? 70 : d > 1.2 ? 95 : 130;
     },
-    inDomain: (p) => densityAt(p) > 0.35,
+    inDomain: (p) => densityAt(p) > 0.22,
     bridgeMaxSteps: 0,
     blocked: isWaterAt,
     maxLength: 2600,

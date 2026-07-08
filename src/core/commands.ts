@@ -5,6 +5,7 @@
  */
 import { MODES, REFUND_FRACTION, ROUTE_COLORS, WATER_CROSSING_MULT } from './constants';
 import { isWaterAt } from './fields';
+import { findRoadPath, nearestRoadPoint } from './transit/roadGraph';
 import { dist, makePolyline } from './geometry';
 import type { Vec2 } from './geometry';
 import type { Command, CommandResult, GameState, TrackSegment, TransitMode } from './types';
@@ -54,17 +55,23 @@ export function applyCommand(state: GameState, cmd: Command): CommandResult {
   switch (cmd.kind) {
     case 'buildStation': {
       if (!state.unlockedModes.includes(cmd.mode)) return { ok: false, error: `${MODES[cmd.mode].label} not yet unlocked` };
-      if (isWaterAt(state.fields, cmd.pos)) return { ok: false, error: 'Cannot build a station on water' };
+      // road-running modes snap the station onto the street network
+      let pos = { ...cmd.pos };
+      if (cmd.mode === 'bus' || cmd.mode === 'tram') {
+        const snapped = nearestRoadPoint(state.roads, pos, 260);
+        if (snapped) pos = snapped;
+      }
+      if (isWaterAt(state.fields, pos)) return { ok: false, error: 'Cannot build a station on water' };
       const cost = stationCost(cmd.mode);
       if (state.budget.cash < cost) return { ok: false, error: 'Insufficient funds' };
       for (const s of state.stations) {
-        if (s.mode === cmd.mode && dist(s.pos, cmd.pos) < 200) return { ok: false, error: 'Too close to an existing station of this mode' };
+        if (s.mode === cmd.mode && dist(s.pos, pos) < 200) return { ok: false, error: 'Too close to an existing station of this mode' };
       }
       const id = state.nextId++;
       state.stations.push({
         id,
         name: nextStationName(state),
-        pos: { ...cmd.pos },
+        pos,
         mode: cmd.mode,
         level: 1,
         ridership: 0,
@@ -88,7 +95,22 @@ export function applyCommand(state: GameState, cmd: Command): CommandResult {
           ((t.fromStationId === from.id && t.toStationId === to.id) || (t.fromStationId === to.id && t.toStationId === from.id)),
       );
       if (exists) return { ok: false, error: 'Track already exists between these stations' };
-      const points = [from.pos, ...cmd.waypoints, to.pos];
+      let points: Vec2[] = [from.pos, ...cmd.waypoints, to.pos];
+      // bus/tram tracks follow the street network between stops
+      if (cmd.mode === 'bus' || cmd.mode === 'tram') {
+        const stops = [from.pos, ...cmd.waypoints, to.pos];
+        const routed: Vec2[] = [];
+        let allFound = true;
+        for (let i = 0; i + 1 < stops.length; i++) {
+          const leg = findRoadPath(state.roads, stops[i] as Vec2, stops[i + 1] as Vec2);
+          if (!leg) {
+            allFound = false;
+            break;
+          }
+          for (let j = routed.length > 0 ? 1 : 0; j < leg.length; j++) routed.push(leg[j] as Vec2);
+        }
+        if (allFound && routed.length >= 2) points = routed;
+      }
       const cost = trackCost(state, cmd.mode, cmd.grade, points);
       if (state.budget.cash < cost) return { ok: false, error: 'Insufficient funds' };
       // surface/elevated track cannot terminate mid-water; sampled cost already

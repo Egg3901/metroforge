@@ -322,6 +322,20 @@ export class GameRenderer {
             r -= 14;
             g -= 8;
             b -= 10;
+            // tree canopy texture: per-pixel clumps
+            const tree = hash(px * 2 + 13, py * 2 + 29);
+            if (tree > 0.5) {
+              const dk = (tree - 0.5) * 34;
+              r -= dk;
+              g -= dk * 0.55;
+              b -= dk;
+            }
+          } else if (urban > 0.3) {
+            // city grain: fine speckle so the fabric isn't flat
+            const grain = (hash(px * 3 + 41, py * 3 + 57) - 0.5) * 16 * urban;
+            r += grain;
+            g += grain;
+            b += grain;
           }
           // beach band just above the shoreline
           if (wf > 0.28 && elev < 0.3) {
@@ -340,9 +354,11 @@ export class GameRenderer {
           // park overlay (smooth-edged)
           if (park > 0.25) {
             const t = Math.min(1, (park - 0.25) / 0.5);
-            r = r * (1 - t) + (44 + v) * t;
-            g = g * (1 - t) + (78 + v) * t;
-            b = b * (1 - t) + (48 + v) * t;
+            const tree = hash(px * 2 + 91, py * 2 + 17);
+            const dk = tree > 0.55 ? (tree - 0.55) * 30 : 0;
+            r = r * (1 - t) + (44 + v - dk) * t;
+            g = g * (1 - t) + (78 + v - dk * 0.5) * t;
+            b = b * (1 - t) + (48 + v - dk) * t;
           }
         }
         const o = (py * W * PX + px) * 4;
@@ -383,7 +399,7 @@ export class GameRenderer {
       lg.moveTo(pts[0] as number, pts[1] as number);
       for (let i = 2; i < pts.length; i += 2) lg.lineTo(pts[i] as number, pts[i + 1] as number);
     }
-    lg.stroke({ width: 12, color: 0x4a4842, cap: 'round' });
+    lg.stroke({ width: 13, color: 0x7f7d74, cap: 'round' });
 
     const classes: { cls: string; casing: number; fill: number; casingColor: number; fillColor: number }[] = [
       { cls: 'collector', casing: 30, fill: 20, casingColor: 0x2b2a26, fillColor: 0x807e76 },
@@ -425,6 +441,29 @@ export class GameRenderer {
     const housePalette = [0x5c554a, 0x665e50, 0x554e44, 0x6d6456, 0x60584c];
     const towerPalette = [0x686d78, 0x717682, 0x5e636e, 0x7b808c];
     const f = this.fieldsPayload;
+    // clearance grid: no lots on top of arterials/collectors
+    const CLEAR = 46;
+    const clearCell = 48;
+    const clearSet = new Set<number>();
+    const ckey = (x: number, y: number): number => Math.floor(x / clearCell) * 73856093 + Math.floor(y / clearCell) * 19349663;
+    for (const road of city.roads) {
+      if (road.cls === 'local') continue;
+      const rp = road.points;
+      for (let i = 0; i + 3 < rp.length; i += 2) {
+        const x1 = rp[i] as number;
+        const y1 = rp[i + 1] as number;
+        const x2 = rp[i + 2] as number;
+        const y2 = rp[i + 3] as number;
+        const segLen = Math.hypot(x2 - x1, y2 - y1);
+        for (let d = 0; d <= segLen; d += clearCell / 2) {
+          const t = segLen > 0 ? d / segLen : 0;
+          clearSet.add(ckey(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t));
+        }
+      }
+    }
+    const nearMajorRoad = (x: number, y: number): boolean =>
+      clearSet.has(Math.floor(x / clearCell) * 73856093 + Math.floor(y / clearCell) * 19349663);
+    void CLEAR;
     // sample land use to size buildings: towers where jobs dominate, houses elsewhere
     const landUseAt = (x: number, y: number): { jobs: number; pop: number } => {
       if (!f) return { jobs: 0, pop: 0 };
@@ -457,11 +496,12 @@ export class GameRenderer {
         for (const side of [-1, 1]) {
           const r = hash(px * side, py + side);
           if (r < 0.25 - towerness * 0.15) continue; // vacant lots, fewer downtown
-          const setback = 16 + r * 8 - towerness * 6;
+          const setback = 20 + r * 8;
           const w = 14 + ((r * 7919) % 1) * 12 + towerness * 14; // along street
           const h = 12 + ((r * 104729) % 1) * 16 + towerness * 16; // depth
           const cxp = px + nx * side * (setback + h / 2);
           const cyp = py + ny * side * (setback + h / 2);
+          if (nearMajorRoad(cxp, cyp)) continue; // never spill onto big roads
           // axis-aligned to the street: draw as rotated quad
           const hw = w / 2;
           const hh = h / 2;
@@ -616,15 +656,27 @@ export class GameRenderer {
           const heading = f.cars[i * 3 + 2] as number;
           const cos = Math.cos(heading);
           const sin = Math.sin(heading);
-          const l = 14;
-          const w2 = 6;
+          const l = 16;
+          const w2 = 7;
+          const body = (i % 7 === 0) ? 0xd8b96a : (i % 5 === 0) ? 0x9fb4c8 : 0xdcdcd4;
           cg.poly([
             x + cos * l - sin * w2, y + sin * l + cos * w2,
             x + cos * l + sin * w2, y + sin * l - cos * w2,
             x - cos * l + sin * w2, y - sin * l - cos * w2,
             x - cos * l - sin * w2, y - sin * l + cos * w2,
           ]);
-          cg.fill({ color: (i % 7 === 0) ? 0xd8b96a : 0xdcdcd4, alpha: 0.9 });
+          cg.fill({ color: body, alpha: 0.95 });
+          // cabin: darker inset toward the rear
+          const cl = 6;
+          const cw = 5;
+          const off = -2;
+          cg.poly([
+            x + cos * (off + cl) - sin * cw, y + sin * (off + cl) + cos * cw,
+            x + cos * (off + cl) + sin * cw, y + sin * (off + cl) - cos * cw,
+            x + cos * (off - cl) + sin * cw, y + sin * (off - cl) - cos * cw,
+            x + cos * (off - cl) - sin * cw, y + sin * (off - cl) + cos * cw,
+          ]);
+          cg.fill({ color: 0x33363c, alpha: 0.9 });
         }
       }
 

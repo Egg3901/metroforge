@@ -22,4 +22,7 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  preview: {
+    allowedHosts: ['transit.ahousedividedgame.com', 'localhost', '127.0.0.1'],
+  },
 });
