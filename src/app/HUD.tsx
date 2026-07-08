@@ -1,6 +1,7 @@
 import { TICKS_PER_DAY } from '@core/constants';
 import { CoinsIcon, PeopleIcon, PinIcon, ShareIcon, ThumbIcon } from './icons';
 import { GOALS } from './goals';
+import { Wordmark } from './brand';
 import { useStore } from './store';
 import type { OverlayMode } from './store';
 
@@ -84,9 +85,7 @@ export function HUD(): React.JSX.Element | null {
             <path d="M5 9.5V21h14V9.5" />
           </svg>
         </button>
-        <span className="hidden sm:block font-bold tracking-tight text-zinc-100 mr-2">
-          Metro<span className="text-amber-400">Forge</span>
-        </span>
+        <span className="hidden sm:flex items-center mr-2"><Wordmark size={16} /></span>
         <Stat
           icon={<CoinsIcon size={14} />}
           value={`${fmtMoney(ui.cash)} · ${net >= 0 ? '+' : ''}${fmtMoney(net)}/d`}

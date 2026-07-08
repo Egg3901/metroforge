@@ -3,6 +3,7 @@ import type { TransitMode } from '@core/types';
 import type { UiState } from '@host/protocol';
 import { SimClient } from '@host/client';
 import { GOALS, completedGoalIds } from './goals';
+import type { Scenario } from './scenarios';
 
 export type Tool = 'select' | 'station' | 'track' | 'route' | 'bulldoze';
 export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic';
@@ -33,12 +34,16 @@ interface AppState {
   overlay: OverlayMode;
   /** ids of completed progression goals */
   completedGoals: string[];
+  /** active scenario + whether its objective has been met */
+  scenario: Scenario | null;
+  won: boolean;
 
   setTool: (t: Tool) => void;
   setMode: (m: TransitMode) => void;
   setSpeed: (s: number) => void;
   setUi: (ui: UiState) => void;
   start: (seed: number, difficulty: 'easy' | 'normal' | 'hard', opts?: { size?: 'small' | 'medium' | 'large' | undefined; presetKey?: string | undefined }) => void;
+  startScenario: (s: Scenario, seed: number) => void;
   pushToast: (message: string, tone: Toast['tone']) => void;
   dismissToast: (id: number) => void;
   cancelPending: () => void;
@@ -67,6 +72,9 @@ export const useStore = create<AppState>((set, get) => {
     } else {
       set({ ui });
     }
+    // scenario win
+    const sc = get().scenario;
+    if (sc && !get().won && sc.progress(ui) >= 1) set({ won: true });
   };
   client.events.onToast = (message, tone) => get().pushToast(message, tone);
   client.events.onSaved = (json) => {
@@ -91,6 +99,8 @@ export const useStore = create<AppState>((set, get) => {
     panel: 'none',
     overlay: 'none',
     completedGoals: [],
+    scenario: null,
+    won: false,
 
     setTool: (tool) => set({ tool, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
     setMode: (mode) => set({ mode, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
@@ -101,7 +111,11 @@ export const useStore = create<AppState>((set, get) => {
     setUi: (ui) => set({ ui }),
     start: (seed, difficulty, opts) => {
       client.init(seed, difficulty, opts);
-      set({ started: true, completedGoals: [] });
+      set({ started: true, completedGoals: [], scenario: null, won: false });
+    },
+    startScenario: (s, seed) => {
+      client.init(seed, s.difficulty, { size: s.size, presetKey: s.presetKey });
+      set({ started: true, completedGoals: [], scenario: s, won: false });
     },
     pushToast: (message, tone) => {
       const id = toastId++;

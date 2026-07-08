@@ -5,7 +5,17 @@ import { Toolbar } from './Toolbar';
 import { BudgetPanel, GoalsPanel, RoutePanel, StationPanel } from './Panels';
 import { CITY_PRESETS } from '@core/city/presets';
 import type { MapSize } from '@core/city/presets';
+import { Logo, Wordmark, TAGLINE } from './brand';
+import { SCENARIOS } from './scenarios';
 import { useStore } from './store';
+
+const randomSeed = (): number => Math.floor(Math.random() * 1e9);
+const seedFrom = (s: string): number => {
+  let n = Number(s);
+  if (!Number.isFinite(n)) { n = 0; for (const ch of s) n = (n * 31 + ch.charCodeAt(0)) >>> 0; }
+  return n >>> 0;
+};
+const DIFF_TONE: Record<string, string> = { easy: 'text-emerald-400', normal: 'text-sky-400', hard: 'text-rose-400' };
 
 function Toasts(): React.JSX.Element {
   const toasts = useStore((s) => s.toasts);
@@ -26,112 +36,134 @@ function Toasts(): React.JSX.Element {
   );
 }
 
-function NewGameScreen(): React.JSX.Element {
+function FreePlay(): React.JSX.Element {
   const start = useStore((s) => s.start);
-  const client = useStore((s) => s.client);
-  const [seed, setSeed] = useState(() => String(Math.floor(Math.random() * 1e9)));
+  const [seed, setSeed] = useState(() => String(randomSeed()));
   const [difficulty, setDifficulty] = useState<'easy' | 'normal' | 'hard'>('normal');
-  const [presetKey, setPresetKey] = useState('generic');
+  const [presetKey, setPresetKey] = useState('nyc');
   const [size, setSize] = useState<MapSize>('medium');
-  const hasSave = localStorage.getItem('metroforge:save:auto') !== null;
-  const selectedPreset = CITY_PRESETS.find((p) => p.key === presetKey) ?? CITY_PRESETS[0]!;
+  const preset = CITY_PRESETS.find((p) => p.key === presetKey) ?? CITY_PRESETS[0]!;
+  const chip = (active: boolean): string =>
+    `flex-1 py-2 rounded-lg text-sm capitalize transition-colors ${active ? 'bg-amber-500 text-zinc-950 font-semibold' : 'bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700'}`;
   return (
-    <div className="absolute inset-0 z-40 bg-zinc-950 flex items-center justify-center">
-      <div className="w-full max-w-sm px-5 space-y-5">
-        <div>
-          <h1 className="text-3xl font-bold text-zinc-100 tracking-tight">MetroForge</h1>
-          <p className="text-zinc-400 text-sm mt-1">Paint a transit network onto a living, growing city.</p>
-        </div>
-        <label className="block text-sm text-zinc-300">
-          City seed
-          <input
-            value={seed}
-            onChange={(e) => setSeed(e.target.value)}
-            className="mt-1 w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 font-mono text-sm"
-          />
-        </label>
-        <div>
-          <div className="text-sm text-zinc-300 mb-1">City</div>
-          <div className="grid grid-cols-2 gap-1.5">
-            {[...CITY_PRESETS].sort((a, b) => Number(b.real ?? false) - Number(a.real ?? false)).map((p) => (
-              <button
-                key={p.key}
-                onClick={() => setPresetKey(p.key)}
-                className={`relative py-2 rounded text-sm ${
-                  presetKey === p.key ? 'bg-amber-500 text-zinc-950 font-bold' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-                }`}
-              >
-                {p.label}
-                {p.real && (
-                  <span className={`absolute top-0.5 right-1 text-[8px] font-bold tracking-wide ${presetKey === p.key ? 'text-zinc-900' : 'text-emerald-400'}`}>
-                    REAL
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-zinc-500 mt-1.5 min-h-[2rem]">{selectedPreset.blurb}</p>
-        </div>
-        <div>
-          <div className="text-sm text-zinc-300 mb-1">Map size</div>
-          <div className="flex gap-2">
-            {(['small', 'medium', 'large'] as const).map((sz) => (
-              <button
-                key={sz}
-                onClick={() => setSize(sz)}
-                className={`flex-1 py-2 rounded text-sm capitalize ${
-                  size === sz ? 'bg-amber-500 text-zinc-950 font-bold' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-                }`}
-              >
-                {sz}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex gap-2">
-          {(['easy', 'normal', 'hard'] as const).map((d) => (
-            <button
-              key={d}
-              onClick={() => setDifficulty(d)}
-              className={`flex-1 py-2 rounded text-sm capitalize ${
-                difficulty === d ? 'bg-amber-500 text-zinc-950 font-bold' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-              }`}
-            >
-              {d}
+    <div className="space-y-4">
+      <div>
+        <div className="text-xs uppercase tracking-widest text-zinc-500 mb-1.5">City</div>
+        <div className="grid grid-cols-3 gap-1.5">
+          {[...CITY_PRESETS].sort((a, b) => Number(b.real ?? false) - Number(a.real ?? false)).map((p) => (
+            <button key={p.key} onClick={() => setPresetKey(p.key)}
+              className={`relative py-2 rounded-lg text-sm transition-colors ${presetKey === p.key ? 'bg-amber-500 text-zinc-950 font-semibold' : 'bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700'}`}>
+              {p.label}
+              {p.real && <span className={`absolute top-0.5 right-1 text-[8px] font-bold ${presetKey === p.key ? 'text-zinc-900' : 'text-emerald-400'}`}>REAL</span>}
             </button>
           ))}
         </div>
-        <button
-          onClick={() => {
-            let n = Number(seed);
-            if (!Number.isFinite(n)) {
-              n = 0;
-              for (const ch of seed) n = (n * 31 + ch.charCodeAt(0)) >>> 0;
-            }
-            start(n >>> 0, difficulty, { size, presetKey });
-          }}
-          className="w-full py-3 rounded bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold"
-        >
-          Found a Transit Authority
+        <p className="text-xs text-zinc-500 mt-1.5 min-h-[1.5rem]">{preset.blurb}</p>
+      </div>
+      <div className="flex gap-2">
+        {(['small', 'medium', 'large'] as const).map((sz) => (
+          <button key={sz} onClick={() => setSize(sz)} className={chip(size === sz)}>{sz}</button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        {(['easy', 'normal', 'hard'] as const).map((d) => (
+          <button key={d} onClick={() => setDifficulty(d)} className={chip(difficulty === d)}>{d}</button>
+        ))}
+      </div>
+      <label className="flex items-center gap-2 text-xs text-zinc-500">
+        Seed
+        <input value={seed} onChange={(e) => setSeed(e.target.value)}
+          className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 font-mono text-xs text-zinc-300" />
+        <button onClick={() => setSeed(String(randomSeed()))} className="px-2 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-zinc-100" title="Randomize">⟳</button>
+      </label>
+      <button onClick={() => start(seedFrom(seed), difficulty, { size, presetKey })}
+        className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold transition-colors">
+        Found a Transit Authority
+      </button>
+    </div>
+  );
+}
+
+function ScenarioList(): React.JSX.Element {
+  const startScenario = useStore((s) => s.startScenario);
+  return (
+    <div className="grid gap-2">
+      {SCENARIOS.map((sc) => (
+        <button key={sc.id} onClick={() => startScenario(sc, randomSeed())}
+          className="group text-left rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 hover:border-zinc-700 p-3.5 transition-colors">
+          <div className="flex items-baseline gap-2">
+            <span className="font-semibold text-zinc-100">{sc.title}</span>
+            <span className="text-xs text-zinc-500">{sc.city}</span>
+            <span className={`ml-auto text-[10px] font-bold uppercase tracking-wide ${DIFF_TONE[sc.difficulty]}`}>{sc.difficulty}</span>
+          </div>
+          <p className="text-xs text-zinc-400 mt-1">{sc.blurb}</p>
+          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-amber-300/90">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            {sc.goal}
+          </div>
         </button>
+      ))}
+    </div>
+  );
+}
+
+function NewGameScreen(): React.JSX.Element {
+  const client = useStore((s) => s.client);
+  const [tab, setTab] = useState<'scenarios' | 'free'>('scenarios');
+  const hasSave = localStorage.getItem('metroforge:save:auto') !== null;
+  return (
+    <div className="absolute inset-0 z-40 bg-zinc-950 overflow-y-auto">
+      {/* subtle brand glow */}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_40%_at_50%_0%,rgba(255,182,61,0.08),transparent)]" />
+      <div className="relative w-full max-w-md mx-auto px-5 py-10 min-h-full flex flex-col">
+        <div className="flex flex-col items-center text-center mb-7">
+          <Logo size={64} />
+          <div className="mt-3"><Wordmark size={30} /></div>
+          <p className="text-zinc-400 text-sm mt-2">{TAGLINE}</p>
+        </div>
+
+        <div className="flex gap-1 p-1 bg-zinc-900/70 rounded-xl mb-4">
+          {([['scenarios', 'Scenarios'], ['free', 'Free Play']] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setTab(k)}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${tab === k ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'scenarios' ? <ScenarioList /> : <FreePlay />}
+
         {hasSave && (
           <button
             onClick={() => {
               const json = localStorage.getItem('metroforge:save:auto');
-              if (json) {
-                client.loadSave(json);
-                useStore.setState({ started: true });
-              }
+              if (json) { client.loadSave(json); useStore.setState({ started: true }); }
             }}
-            className="w-full py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-sm"
-          >
+            className="mt-4 w-full py-2.5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-300 text-sm">
             Continue last save
           </button>
         )}
-        <p className="text-xs text-zinc-600">
-          Start with buses. Grow the city to unlock trams (50k), metro (150k), and commuter rail (300k).
-          Keys: 1–4 modes · S station · T track · R route · B bulldoze · Space pause.
+        <p className="text-[11px] text-zinc-600 text-center mt-auto pt-6">
+          Buses first; grow to unlock tram · metro · rail. Keys: 1–4 modes · S T R B · Space pause.
         </p>
+      </div>
+    </div>
+  );
+}
+
+function WinOverlay(): React.JSX.Element {
+  const scenario = useStore((s) => s.scenario);
+  return (
+    <div className="absolute inset-0 z-50 bg-zinc-950/92 backdrop-blur-sm flex items-center justify-center px-6">
+      <div className="text-center max-w-sm">
+        <div className="flex justify-center mb-4"><Logo size={56} /></div>
+        <div className="text-emerald-400 text-xs font-bold uppercase tracking-widest">Objective complete</div>
+        <h2 className="text-3xl font-bold text-zinc-100 mt-2">{scenario?.title ?? 'You did it'}</h2>
+        <p className="text-zinc-400 mt-2">{scenario ? `${scenario.city} — ${scenario.goal}.` : ''} The city runs on the lines you built.</p>
+        <div className="flex gap-2 justify-center mt-6">
+          <button onClick={() => useStore.setState({ won: false })} className="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium">Keep building</button>
+          <button onClick={() => useStore.setState({ started: false, won: false, scenario: null })} className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold">New game</button>
+        </div>
       </div>
     </div>
   );
@@ -140,6 +172,7 @@ function NewGameScreen(): React.JSX.Element {
 export function App(): React.JSX.Element {
   const started = useStore((s) => s.started);
   const panel = useStore((s) => s.panel);
+  const won = useStore((s) => s.won);
   const bankrupt = useStore((s) => s.ui?.bankrupt ?? false);
   return (
     <div className="fixed inset-0 bg-zinc-950">
@@ -151,6 +184,7 @@ export function App(): React.JSX.Element {
       {started && panel === 'budget' && <BudgetPanel />}
       {started && panel === 'goals' && <GoalsPanel />}
       <Toasts />
+      {started && won && <WinOverlay />}
       {!started && <NewGameScreen />}
       {bankrupt && (
         <div className="absolute inset-0 z-40 bg-zinc-950/90 flex items-center justify-center">
