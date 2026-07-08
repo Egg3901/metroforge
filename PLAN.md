@@ -105,7 +105,14 @@ alone.
 
 ---
 
-## Phase 3 — A reason to keep playing (progression & campaign) ⬜
+## Phase 3 — A reason to keep playing (progression & campaign) 🟡
+
+> Shipped the campaign spine, **mirroring the ahd-sim repo's setup**: a flat
+> `content/scenarioRegistry.ts` (metadata rows + `sc()` helper) separate from
+> scenario content, and `content/campaign.ts` (the stars analogue of ahd-sim's
+> `packs.ts`) driving picker locks. Six cities in three tiers, unlocked by
+> stars earned in play (1/2/3 per city). Remaining: tech/era unlocks as reward,
+> real failure conditions, difficulty rebalance.
 
 **Goal:** turn Free Play + loose scenarios into a shaped arc with stakes.
 
