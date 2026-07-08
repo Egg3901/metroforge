@@ -6,7 +6,8 @@
 import { Application, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import type { DemandPayload, FieldsPayload, FrameSnapshot, StaticCity, TrafficPayload, UiState } from '@host/protocol';
 import type { TransitMode } from '@core/types';
-import { PALETTE as PAL, MODE_COLOR, mix } from './palette';
+import { TICKS_PER_DAY } from '@core/constants';
+import { PALETTE as PAL, MODE_COLOR, mix, dayNightWash } from './palette';
 
 const MODE_STATION_COLOR: Record<TransitMode, number> = MODE_COLOR;
 
@@ -55,6 +56,8 @@ export class GameRenderer {
   /** per-route polyline + arc-length table, for animating passenger-flow motes */
   private routePaths: { color: number | string; pts: number[]; cum: number[]; total: number; ridership: number }[] = [];
   private ghostG = new Graphics();
+  private dayNightG = new Graphics();
+  private vignetteG = new Graphics();
 
   private city: StaticCity | null = null;
   private ui: UiState | null = null;
@@ -69,10 +72,14 @@ export class GameRenderer {
   private zoomFocus = { x: 0, y: 0 }; // screen point to zoom about
   private cx = 0;
   private cy = 0;
+  private targetCx = 0;
+  private targetCy = 0;
+  private camEasing = false;
   private dragging = false;
   private lastPointer = { x: 0, y: 0 };
   private pointerDownAt = { x: 0, y: 0 };
   private clock = 0; // ms, drives overlay pulse animation
+  private lastDayNightKey = '';
 
   callbacks: Partial<RendererCallbacks> = {};
 
@@ -84,12 +91,18 @@ export class GameRenderer {
       preference: 'webgl',
       resolution: Math.min(window.devicePixelRatio || 1, 2),
       autoDensity: true,
+      // needed so exportNetworkCard can read pixels off the WebGL canvas
+      preserveDrawingBuffer: true,
     });
     host.appendChild(this.app.canvas);
     this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.trafficRoadsG, this.tracksG, this.routesG, this.coverageG, this.demandG, this.hotspotsG, this.flowG, this.mapLabels, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
     this.app.stage.addChild(this.world);
+    this.app.stage.addChild(this.dayNightG);
+    this.app.stage.addChild(this.vignetteG);
     this.attachInput(this.app.canvas);
     this.app.ticker.add(() => this.tick());
+    this.drawVignette();
+    this.app.renderer.on('resize', () => this.drawVignette());
   }
 
   destroy(): void {
@@ -161,6 +174,61 @@ export class GameRenderer {
     if (mode === this.overlayMode) return;
     this.overlayMode = mode;
     this.bakeOverlay();
+  }
+
+  /** Ease the camera toward a world point (tutorial / focus cues). */
+  focusOn(x: number, y: number, scale?: number): void {
+    this.targetCx = x;
+    this.targetCy = y;
+    this.camEasing = true;
+    if (scale !== undefined) {
+      this.zoomFocus = { x: this.app.screen.width / 2, y: this.app.screen.height / 2 };
+      this.targetScale = Math.max(0.03, Math.min(2.5, scale));
+    }
+  }
+
+  /** Snapshot the WebGL canvas for the shareable network card. */
+  captureCanvas(): HTMLCanvasElement | null {
+    try {
+      // force a fresh frame so preserveDrawingBuffer has current pixels
+      this.app.renderer.render(this.app.stage);
+      return this.app.canvas as HTMLCanvasElement;
+    } catch {
+      return null;
+    }
+  }
+
+  private drawVignette(): void {
+    const g = this.vignetteG;
+    g.clear();
+    const w = this.app.screen.width;
+    const h = this.app.screen.height;
+    if (w < 2 || h < 2) return;
+    // four soft edge strips — cheap stand-in for a radial vignette
+    const edge = Math.min(90, Math.min(w, h) * 0.12);
+    g.rect(0, 0, w, edge);
+    g.fill({ color: 0x0b0d10, alpha: 0.35 });
+    g.rect(0, h - edge, w, edge);
+    g.fill({ color: 0x0b0d10, alpha: 0.4 });
+    g.rect(0, 0, edge, h);
+    g.fill({ color: 0x0b0d10, alpha: 0.28 });
+    g.rect(w - edge, 0, edge, h);
+    g.fill({ color: 0x0b0d10, alpha: 0.28 });
+  }
+
+  private updateDayNight(): void {
+    const tick = this.ui?.tick ?? 0;
+    const hour = ((tick % TICKS_PER_DAY) / TICKS_PER_DAY) * 24;
+    // quantize so we don't redraw every tick
+    const key = `${Math.round(hour * 4) / 4}|${this.app.screen.width}x${this.app.screen.height}`;
+    if (key === this.lastDayNightKey) return;
+    this.lastDayNightKey = key;
+    const wash = dayNightWash(hour);
+    const g = this.dayNightG;
+    g.clear();
+    if (wash.alpha < 0.01) return;
+    g.rect(0, 0, this.app.screen.width, this.app.screen.height);
+    g.fill({ color: wash.color, alpha: wash.alpha });
   }
 
   /** Data overlays: heatmap sprite for field layers, circles for coverage. */
@@ -367,6 +435,7 @@ export class GameRenderer {
       canvas.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 1) {
+        this.camEasing = false; // player takes the camera back
         this.dragging = true;
         this.pointerDownAt = { x: e.clientX, y: e.clientY };
         this.lastPointer = { x: e.clientX, y: e.clientY };
@@ -1096,6 +1165,17 @@ export class GameRenderer {
       this.cx = Math.max(-half, Math.min(half, this.cx));
       this.cy = Math.max(-half, Math.min(half, this.cy));
     }
+    // eased pan (tutorial focus / programmatic camera)
+    if (this.camEasing) {
+      const k = 1 - Math.pow(0.0004, this.app.ticker.deltaMS / 1000);
+      this.cx += (this.targetCx - this.cx) * k;
+      this.cy += (this.targetCy - this.cy) * k;
+      if (Math.hypot(this.targetCx - this.cx, this.targetCy - this.cy) < 8) {
+        this.cx = this.targetCx;
+        this.cy = this.targetCy;
+        this.camEasing = false;
+      }
+    }
     // camera transform
     this.world.scale.set(this.scale);
     this.world.position.set(
@@ -1103,6 +1183,7 @@ export class GameRenderer {
       this.app.screen.height / 2 - this.cy * this.scale,
     );
     this.labels.visible = this.scale > 0.12;
+    this.updateDayNight();
     // map labels: constant on-screen size, revealed by importance as you zoom in,
     // then decluttered so nothing overlaps
     const targetPx = 13;

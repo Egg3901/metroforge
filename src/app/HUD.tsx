@@ -2,6 +2,7 @@ import { TICKS_PER_DAY } from '@core/constants';
 import { CoinsIcon, PeopleIcon, PinIcon, ShareIcon, ThumbIcon } from './icons';
 import { GOALS } from './goals';
 import { Wordmark } from './brand';
+import { exportNetworkCard } from './exportCard';
 import { useStore } from './store';
 import type { OverlayMode } from './store';
 
@@ -61,6 +62,8 @@ export function HUD(): React.JSX.Element | null {
   const overlay = useStore((s) => s.overlay);
   const setOverlay = useStore((s) => s.setOverlay);
   const client = useStore((s) => s.client);
+  const scenario = useStore((s) => s.scenario);
+  const pushToast = useStore((s) => s.pushToast);
   const completedGoals = useStore((s) => s.completedGoals.length);
   const totalGoals = GOALS.length;
   if (!ui) return null;
@@ -68,6 +71,12 @@ export function HUD(): React.JSX.Element | null {
   const cashColor = ui.cash < 0 ? 'text-red-400' : ui.cash < 500_000 ? 'text-amber-400' : 'text-emerald-400';
   const net =
     ui.lastDay.fares + ui.lastDay.subsidy - ui.lastDay.operations - ui.lastDay.maintenance - ui.lastDay.interest;
+
+  const share = async (): Promise<void> => {
+    const cityLabel = scenario?.city ?? 'My Network';
+    const ok = await exportNetworkCard({ cityLabel, ui });
+    pushToast(ok ? 'Network card saved' : 'Could not capture the map yet', ok ? 'good' : 'warn');
+  };
 
   return (
     <div className="absolute top-0 left-0 right-0 bg-zinc-950/85 backdrop-blur-md border-b border-zinc-800/80 z-20 select-none">
@@ -149,8 +158,15 @@ export function HUD(): React.JSX.Element | null {
             ))}
           </div>
           <button
-            onClick={() => client.requestSave()}
+            onClick={() => void share()}
+            title="Share a network card"
             className="ml-2 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
+          >
+            Share
+          </button>
+          <button
+            onClick={() => client.requestSave()}
+            className="ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
           >
             Save
           </button>

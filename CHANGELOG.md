@@ -8,14 +8,20 @@ All notable changes to MetroForge are documented here. Format follows
 
 ### Added
 - **Guided first-city tutorial.** Five interactive steps (density → stations →
-  track → route → first riders) with auto tool/overlay selection, skip, and
-  replay from the home screen. (`app/tutorial.ts`, `app/TutorialCard.tsx`)
+  track → route → first riders) with auto tool/overlay selection, camera focus
+  on your build, skip, and replay from the home screen.
 - **Typography.** Fraunces display + DM Sans for UI and map labels.
 - **Parallel corridor bundling.** Shared track corridors offset so overlapping
   lines read as distinct ribbons.
+- **Day/night wash.** Soft blue night and warm dawn/dusk veils driven by the
+  in-game clock, plus a light edge vignette.
+- **Share network card.** HUD Share button exports a 1200×675 PNG of the live
+  map with ridership / share / coverage stats.
 
 ### Changed
 - Muted road hierarchy so the transit network stays the visual hero.
+- Tutorial coaching copy is more action-led; active tool button gets a stronger
+  highlight while learning.
 
 ## [1.1.0] - 2026-07-08
 

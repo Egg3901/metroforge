@@ -54,3 +54,33 @@ export const MODE_COLOR = {
   metro: 0xff5d6c,
   rail: 0x7ef29a,
 } as const;
+
+/**
+ * Day/night wash over the map (not the React HUD). Returns a multiply-ish
+ * overlay color + alpha for the given hour-of-day (0..24). Night deepens,
+ * dawn/dusk warm briefly; midday is nearly clear so transit stays vivid.
+ */
+export function dayNightWash(hour: number): { color: number; alpha: number } {
+  // night 22–5, dawn ~6, day 8–17, dusk ~19
+  let night = 0;
+  if (hour < 5) night = 1;
+  else if (hour < 7) night = 1 - (hour - 5) / 2;
+  else if (hour < 18) night = 0;
+  else if (hour < 21) night = (hour - 18) / 3;
+  else night = 1;
+
+  let warm = 0;
+  if (hour >= 5.5 && hour < 8) warm = 1 - Math.abs(hour - 6.75) / 1.25;
+  else if (hour >= 17.5 && hour < 20.5) warm = 1 - Math.abs(hour - 19) / 1.5;
+  warm = Math.max(0, Math.min(1, warm));
+
+  if (warm > 0.05) {
+    // amber dusk/dawn veil
+    return { color: 0xff9a4a, alpha: 0.06 + warm * 0.1 };
+  }
+  if (night > 0.02) {
+    // deep blue night — keeps line colors readable
+    return { color: 0x0a1528, alpha: 0.08 + night * 0.28 };
+  }
+  return { color: 0x000000, alpha: 0 };
+}

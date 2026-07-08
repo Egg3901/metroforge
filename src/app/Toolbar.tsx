@@ -107,7 +107,9 @@ export function Toolbar(): React.JSX.Element | null {
           onClick={() => setTool(t.id)}
           title={`${t.label} (${t.key})`}
           className={`flex items-center gap-2 rounded-lg transition-colors ${compact ? 'p-2.5 justify-center' : 'px-2.5 py-2 w-full'} ${
-            active ? 'bg-amber-500 text-zinc-950' : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-200'
+            active
+              ? 'bg-amber-500 text-zinc-950 ring-2 ring-amber-300/50'
+              : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-200'
           }`}
         >
           <Icon size={compact ? 20 : 16} />

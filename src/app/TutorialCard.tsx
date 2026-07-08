@@ -3,8 +3,9 @@
  * auto-selects the right tool/overlay, and can be skipped permanently.
  */
 import { useEffect, useRef } from 'react';
+import { getRenderer } from './rendererBridge';
 import { useStore } from './store';
-import { TUTORIAL_STEPS } from './tutorial';
+import { TUTORIAL_STEPS, tutorialFocus } from './tutorial';
 
 export function TutorialCard(): React.JSX.Element | null {
   const active = useStore((s) => s.tutorialActive);
@@ -30,7 +31,9 @@ export function TutorialCard(): React.JSX.Element | null {
     setOverlay(step.overlay);
     // riders step: nudge the player to speed up if paused/slow
     if (step.id === 'riders' && speed < 2) setSpeed(4);
-  }, [active, stepIdx, step, setTool, setOverlay, setSpeed, speed]);
+    const focus = tutorialFocus(ui, step.id);
+    if (focus) getRenderer()?.focusOn(focus.x, focus.y, focus.scale);
+  }, [active, stepIdx, step, setTool, setOverlay, setSpeed, speed, ui]);
 
   // auto-advance when the live condition is met
   useEffect(() => {
@@ -43,14 +46,16 @@ export function TutorialCard(): React.JSX.Element | null {
 
   const isLast = stepIdx >= total - 1;
   const canContinue = step.id === 'density' || step.done(ui);
+  const pct = ((stepIdx + (step.done(ui) ? 1 : 0.35)) / total) * 100;
 
   return (
-    <div className="absolute bottom-28 md:bottom-6 left-1/2 -translate-x-1/2 z-30 w-[min(92vw,26rem)] pointer-events-auto">
+    <div className="absolute bottom-28 md:bottom-6 left-1/2 -translate-x-1/2 z-30 w-[min(92vw,26rem)] pointer-events-auto animate-[tutIn_280ms_ease-out]">
+      <style>{`@keyframes tutIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <div className="rounded-2xl border border-amber-500/35 bg-zinc-950/95 backdrop-blur-md shadow-2xl shadow-black/40 overflow-hidden">
         <div className="h-1 bg-zinc-800">
           <div
             className="h-full bg-amber-400 transition-all duration-500 ease-out"
-            style={{ width: `${((stepIdx + (step.done(ui) ? 1 : 0.35)) / total) * 100}%` }}
+            style={{ width: `${pct}%` }}
           />
         </div>
         <div className="px-4 pt-3 pb-3.5">
@@ -67,6 +72,7 @@ export function TutorialCard(): React.JSX.Element | null {
           </div>
           <h3 className="font-display text-lg text-zinc-50 tracking-tight leading-snug">{step.title}</h3>
           <p className="text-sm text-zinc-400 mt-1.5 leading-relaxed">{step.body}</p>
+          <p className="text-xs text-amber-300/90 mt-2 font-medium">{step.action}</p>
           <div className="mt-3 flex items-center justify-between gap-3">
             <span className="text-xs font-mono tabular-nums text-zinc-500">{step.progress(ui)}</span>
             {(canContinue || step.id === 'density') && (

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { GameRenderer } from '@render/renderer';
+import { setRenderer } from './rendererBridge';
 import { useStore } from './store';
 
 /** Mounts the Pixi renderer and wires input → commands. */
@@ -13,6 +14,7 @@ export function GameCanvas(): React.JSX.Element {
     if (!host) return;
     const renderer = new GameRenderer();
     rendererRef.current = renderer;
+    setRenderer(renderer);
     let disposed = false;
 
     void renderer.init(host).then(() => {
@@ -210,6 +212,7 @@ export function GameCanvas(): React.JSX.Element {
       disposed = true;
       window.removeEventListener('keydown', onKey);
       unsub();
+      setRenderer(null);
       rendererRef.current?.destroy();
       rendererRef.current = null;
     };
