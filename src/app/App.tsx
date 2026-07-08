@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GameCanvas } from './GameCanvas';
 import { HUD } from './HUD';
 import { Toolbar } from './Toolbar';
@@ -7,6 +7,7 @@ import { CITY_PRESETS } from '@core/city/presets';
 import type { MapSize } from '@core/city/presets';
 import { Logo, Wordmark, TAGLINE } from './brand';
 import { SCENARIOS } from './scenarios';
+import { authenticate, fetchLeaderboard, signOut, type LeaderEntry } from './api';
 import { useStore } from './store';
 
 const randomSeed = (): number => Math.floor(Math.random() * 1e9);
@@ -107,14 +108,82 @@ function ScenarioList(): React.JSX.Element {
   );
 }
 
+function AuthModal({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const setAccount = useStore((s) => s.setAccount);
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (): Promise<void> => {
+    setBusy(true); setErr('');
+    try { setAccount(await authenticate(mode, name.trim(), password)); onClose(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); } finally { setBusy(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center px-6" onClick={onClose}>
+      <div className="w-full max-w-xs bg-zinc-900 border border-zinc-800 rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex gap-1 p-1 bg-zinc-950/70 rounded-lg mb-4">
+          {([['login', 'Sign in'], ['register', 'Create account']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setMode(k)} className={`flex-1 py-1.5 rounded-md text-xs font-medium ${mode === k ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500'}`}>{l}</button>
+          ))}
+        </div>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" autoFocus
+          className="w-full mb-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm" />
+        <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password"
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+          className="w-full mb-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm" />
+        {err && <p className="text-xs text-rose-400 mb-2">{err}</p>}
+        <button disabled={busy} onClick={submit} className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-sm disabled:opacity-60">
+          {busy ? '…' : mode === 'login' ? 'Sign in' : 'Create account'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Leaderboard({ scenario }: { scenario: string }): React.JSX.Element {
+  const [entries, setEntries] = useState<LeaderEntry[] | null>(null);
+  const myName = useStore((s) => s.account?.name);
+  useEffect(() => { let ok = true; fetchLeaderboard(scenario).then((e) => ok && setEntries(e)).catch(() => ok && setEntries([])); return () => { ok = false; }; }, [scenario]);
+  if (entries === null) return <div className="text-xs text-zinc-500 py-2">Loading leaderboard…</div>;
+  if (entries.length === 0) return <div className="text-xs text-zinc-500 py-2">No scores yet — be the first.</div>;
+  return (
+    <div className="text-left">
+      {entries.map((e, i) => (
+        <div key={i} className={`flex items-center gap-2 py-1 text-sm ${e.name === myName ? 'text-amber-300' : 'text-zinc-300'}`}>
+          <span className="w-5 text-right text-zinc-500 tabular-nums">{i + 1}</span>
+          <span className="flex-1 truncate">{e.name}</span>
+          <span className="tabular-nums text-zinc-400">{Math.round(e.value).toLocaleString()}</span>
+        </div>
+      ))}
+      <div className="text-[10px] text-zinc-600 mt-1">daily riders</div>
+    </div>
+  );
+}
+
 function NewGameScreen(): React.JSX.Element {
   const client = useStore((s) => s.client);
+  const account = useStore((s) => s.account);
+  const setAccount = useStore((s) => s.setAccount);
   const [tab, setTab] = useState<'scenarios' | 'free'>('scenarios');
+  const [authOpen, setAuthOpen] = useState(false);
   const hasSave = localStorage.getItem('metroforge:save:auto') !== null;
   return (
     <div className="absolute inset-0 z-40 bg-zinc-950 overflow-y-auto">
       {/* subtle brand glow */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_40%_at_50%_0%,rgba(255,182,61,0.08),transparent)]" />
+      <div className="absolute top-3 right-3 z-10 text-xs">
+        {account ? (
+          <div className="flex items-center gap-2 text-zinc-400">
+            <span className="text-zinc-200">{account.name}</span>
+            <button onClick={() => { signOut(); setAccount(null); }} className="text-zinc-500 hover:text-zinc-200">Sign out</button>
+          </div>
+        ) : (
+          <button onClick={() => setAuthOpen(true)} className="px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 text-zinc-300 hover:text-zinc-100">Sign in</button>
+        )}
+      </div>
+      {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
       <div className="relative w-full max-w-md mx-auto px-5 py-10 min-h-full flex flex-col">
         <div className="flex flex-col items-center text-center mb-7">
           <Logo size={64} />
@@ -172,18 +241,34 @@ function EventsBanner(): React.JSX.Element | null {
 
 function WinOverlay(): React.JSX.Element {
   const scenario = useStore((s) => s.scenario);
+  const account = useStore((s) => s.account);
+  const [authOpen, setAuthOpen] = useState(false);
   return (
-    <div className="absolute inset-0 z-50 bg-zinc-950/92 backdrop-blur-sm flex items-center justify-center px-6">
-      <div className="text-center max-w-sm">
+    <div className="absolute inset-0 z-50 bg-zinc-950/92 backdrop-blur-sm flex items-center justify-center px-6 overflow-y-auto py-8">
+      <div className="text-center max-w-sm w-full">
         <div className="flex justify-center mb-4"><Logo size={56} /></div>
         <div className="text-emerald-400 text-xs font-bold uppercase tracking-widest">Objective complete</div>
         <h2 className="text-3xl font-bold text-zinc-100 mt-2">{scenario?.title ?? 'You did it'}</h2>
         <p className="text-zinc-400 mt-2">{scenario ? `${scenario.city} — ${scenario.goal}.` : ''} The city runs on the lines you built.</p>
+
+        {scenario && (
+          <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+            <div className="text-xs uppercase tracking-widest text-zinc-500 mb-2">Leaderboard · {scenario.title}</div>
+            <Leaderboard scenario={scenario.id} />
+            {!account && (
+              <button onClick={() => setAuthOpen(true)} className="mt-3 w-full py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs">
+                Sign in to post your score
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="flex gap-2 justify-center mt-6">
           <button onClick={() => useStore.setState({ won: false })} className="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-medium">Keep building</button>
           <button onClick={() => useStore.setState({ started: false, won: false, scenario: null })} className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold">New game</button>
         </div>
       </div>
+      {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
     </div>
   );
 }

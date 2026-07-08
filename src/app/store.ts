@@ -4,6 +4,7 @@ import type { UiState } from '@host/protocol';
 import { SimClient } from '@host/client';
 import { GOALS, completedGoalIds } from './goals';
 import type { Scenario } from './scenarios';
+import { loadAccount, submitScore, type Account } from './api';
 
 export type Tool = 'select' | 'station' | 'track' | 'route' | 'bulldoze';
 export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic';
@@ -37,6 +38,9 @@ interface AppState {
   /** active scenario + whether its objective has been met */
   scenario: Scenario | null;
   won: boolean;
+  /** signed-in account (for leaderboards), or null */
+  account: Account | null;
+  setAccount: (a: Account | null) => void;
 
   setTool: (t: Tool) => void;
   setMode: (m: TransitMode) => void;
@@ -72,9 +76,17 @@ export const useStore = create<AppState>((set, get) => {
     } else {
       set({ ui });
     }
-    // scenario win
+    // scenario win → post the score (daily riders) to the leaderboard
     const sc = get().scenario;
-    if (sc && !get().won && sc.progress(ui) >= 1) set({ won: true });
+    if (sc && !get().won && sc.progress(ui) >= 1) {
+      set({ won: true });
+      const acct = get().account;
+      if (acct) {
+        submitScore(acct.token, sc.id, Math.round(ui.dailyTransitTrips), sc.city)
+          .then(() => get().pushToast('Score posted to the leaderboard', 'good'))
+          .catch(() => {});
+      }
+    }
   };
   client.events.onToast = (message, tone) => get().pushToast(message, tone);
   client.events.onSaved = (json) => {
@@ -101,6 +113,8 @@ export const useStore = create<AppState>((set, get) => {
     completedGoals: [],
     scenario: null,
     won: false,
+    account: loadAccount(),
+    setAccount: (account) => set({ account }),
 
     setTool: (tool) => set({ tool, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
     setMode: (mode) => set({ mode, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
