@@ -152,3 +152,10 @@ describe('daily challenge', () => {
     expect(d.scenario.cityKey).toBeTruthy();
   });
 });
+
+describe('campaign star merge', () => {
+  it('keeps the best per scenario', async () => {
+    const { mergeStars } = await import('../src/content/campaign');
+    expect(mergeStars({ a: 1, b: 3 }, { a: 2, c: 1 })).toEqual({ a: 2, b: 3, c: 1 });
+  });
+});

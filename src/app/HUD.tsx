@@ -3,8 +3,10 @@ import { CoinsIcon, PeopleIcon, PinIcon, ShareIcon, ThumbIcon } from './icons';
 import { GOALS } from './goals';
 import { Wordmark } from './brand';
 import { exportNetworkCard } from './exportCard';
+import { isMuted, toggleMute, unlockAudio } from './audio';
 import { useStore } from './store';
 import type { OverlayMode } from './store';
+import { useState } from 'react';
 
 /** Map a sim tick to a wall clock within the game day. */
 function clockOf(tick: number): string {
@@ -66,6 +68,7 @@ export function HUD(): React.JSX.Element | null {
   const pushToast = useStore((s) => s.pushToast);
   const completedGoals = useStore((s) => s.completedGoals.length);
   const totalGoals = GOALS.length;
+  const [muted, setMutedUi] = useState(isMuted);
   if (!ui) return null;
 
   const cashColor = ui.cash < 0 ? 'text-red-400' : ui.cash < 500_000 ? 'text-amber-400' : 'text-emerald-400';
@@ -183,9 +186,19 @@ export function HUD(): React.JSX.Element | null {
             ))}
           </div>
           <button
+            onClick={() => {
+              unlockAudio();
+              setMutedUi(toggleMute());
+            }}
+            title={muted ? 'Unmute' : 'Mute'}
+            className="ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
+          >
+            {muted ? 'Unmute' : 'Mute'}
+          </button>
+          <button
             onClick={() => void share()}
             title="Share a network card"
-            className="ml-2 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
+            className="ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
           >
             Share
           </button>

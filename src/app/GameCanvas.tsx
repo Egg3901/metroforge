@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { GameRenderer } from '@render/renderer';
+import { sfxRoute, sfxStation, sfxTrack, sfxWarn, unlockAudio } from './audio';
 import { setRenderer } from './rendererBridge';
 import { useStore } from './store';
 
@@ -34,7 +35,10 @@ export function GameCanvas(): React.JSX.Element {
         renderer.setUi(ui);
       };
 
-      renderer.callbacks.onClickWorld = (x, y) => void handleClick(x, y);
+      renderer.callbacks.onClickWorld = (x, y) => {
+        unlockAudio();
+        void handleClick(x, y);
+      };
       renderer.callbacks.onRightClick = () => {
         useStore.getState().cancelPending();
         useStore.getState().select(null, null);
@@ -104,7 +108,8 @@ export function GameCanvas(): React.JSX.Element {
       const { client, tool, mode } = st;
       if (tool === 'station') {
         const result = await client.command({ kind: 'buildStation', mode, pos: { x, y } });
-        if (!result.ok && result.error) st.pushToast(result.error, 'warn');
+        if (!result.ok && result.error) { st.pushToast(result.error, 'warn'); sfxWarn(); }
+        else sfxStation();
       } else if (tool === 'track') {
         const hit = nearestStation(x, y, 260, mode);
         if (st.trackFrom === null) {
@@ -119,7 +124,8 @@ export function GameCanvas(): React.JSX.Element {
             toStationId: hit,
             waypoints: st.trackWaypoints,
           });
-          if (!result.ok && result.error) st.pushToast(result.error, 'warn');
+          if (!result.ok && result.error) { st.pushToast(result.error, 'warn'); sfxWarn(); }
+          else sfxTrack();
           useStore.setState({ trackFrom: null, trackWaypoints: [], trackCostEstimate: null });
         } else {
           useStore.setState({ trackWaypoints: [...st.trackWaypoints, { x, y }] });
@@ -174,8 +180,8 @@ export function GameCanvas(): React.JSX.Element {
       const st = useStore.getState();
       if (st.routeStops.length < 2) return;
       const result = await st.client.command({ kind: 'createRoute', mode: st.mode, stationIds: st.routeStops });
-      if (!result.ok && result.error) st.pushToast(result.error, 'warn');
-      else st.pushToast('Route created — vehicles are rolling', 'good');
+      if (!result.ok && result.error) { st.pushToast(result.error, 'warn'); sfxWarn(); }
+      else { st.pushToast('Route created — vehicles are rolling', 'good'); sfxRoute(); }
       useStore.setState({ routeStops: [] });
       if (result.ok && result.createdId !== undefined) st.select('route', result.createdId);
     };

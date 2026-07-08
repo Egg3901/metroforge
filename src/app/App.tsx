@@ -209,7 +209,11 @@ function AuthModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const submit = async (): Promise<void> => {
     setBusy(true); setErr('');
-    try { setAccount(await authenticate(mode, name.trim(), password)); onClose(); }
+    try {
+      const acct = await authenticate(mode, name.trim(), password);
+      setAccount(acct);
+      onClose();
+    }
     catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); } finally { setBusy(false); }
   };
   return (
@@ -258,9 +262,13 @@ function NewGameScreen(): React.JSX.Element {
   const client = useStore((s) => s.client);
   const account = useStore((s) => s.account);
   const setAccount = useStore((s) => s.setAccount);
+  const syncCampaign = useStore((s) => s.syncCampaign);
   const [tab, setTab] = useState<'daily' | 'scenarios' | 'free'>('daily');
   const [authOpen, setAuthOpen] = useState(false);
   const hasSave = localStorage.getItem('metroforge:save:auto') !== null;
+  useEffect(() => {
+    if (account) void syncCampaign();
+  }, [account, syncCampaign]);
   return (
     <div className="absolute inset-0 z-40 bg-zinc-950 overflow-y-auto">
       {/* subtle brand glow */}

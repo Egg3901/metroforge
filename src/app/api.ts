@@ -1,8 +1,9 @@
 /**
- * Client for the MetroForge backend (accounts + leaderboards), served at /api
- * on the same origin via Caddy. Token + name persist in localStorage.
+ * Client for the MetroForge backend (accounts + leaderboards + campaign sync),
+ * served at /api on the same origin via Caddy. Token + name persist in localStorage.
  */
 import type { ReplayPayload } from '@host/protocol';
+import type { StarMap } from '@content/campaign';
 
 const BASE = '/api';
 const KEY = 'metroforge:account';
@@ -28,6 +29,15 @@ async function post(path: string, body: unknown, token?: string): Promise<any> {
   return data;
 }
 
+async function get(path: string, token?: string): Promise<any> {
+  const res = await fetch(BASE + path, {
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}) },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
 export async function authenticate(kind: 'register' | 'login', name: string, password: string): Promise<Account> {
   const data = await post(`/${kind}`, { name, password });
   const acct: Account = { name: data.name, token: data.token };
@@ -44,9 +54,9 @@ export interface ScoreSubmission {
   replay: ReplayPayload;
 }
 
-/** Submit a score with its command-log replay for server-side storage / verification. */
-export async function submitScore(token: string, sub: ScoreSubmission): Promise<void> {
-  await post('/score', {
+/** Submit a score with its command-log replay for server-side re-sim verification. */
+export async function submitScore(token: string, sub: ScoreSubmission): Promise<{ verified: boolean }> {
+  const data = await post('/score', {
     scenario: sub.scenario,
     value: sub.value,
     city: sub.city,
@@ -54,12 +64,13 @@ export async function submitScore(token: string, sub: ScoreSubmission): Promise<
     stateHash: sub.replay.stateHash,
     finalTick: sub.replay.finalTick,
     commandCount: sub.replay.commandLog.length,
-    // keep the log under the body size cap — server stores hash; full log optional
-    commandLog: sub.replay.commandLog.length <= 400 ? sub.replay.commandLog : undefined,
+    commandLog: sub.replay.commandLog,
     difficulty: sub.replay.difficulty,
     presetKey: sub.replay.presetKey,
+    size: sub.replay.size,
     rules: sub.replay.rules,
   }, token);
+  return { verified: !!data.verified };
 }
 
 export async function fetchLeaderboard(scenario: string): Promise<LeaderEntry[]> {
@@ -76,4 +87,16 @@ export async function fetchDailyMeta(): Promise<{ challengeId: string; dayKey: s
   } catch {
     return null;
   }
+}
+
+/** Pull campaign stars from the account; merge with local bests. */
+export async function fetchCampaign(token: string): Promise<StarMap> {
+  const data = await get('/campaign', token);
+  return (data.stars && typeof data.stars === 'object' ? data.stars : {}) as StarMap;
+}
+
+/** Push local stars; server keeps the max per scenario and returns the merged map. */
+export async function pushCampaign(token: string, stars: StarMap): Promise<StarMap> {
+  const data = await post('/campaign', { stars }, token);
+  return (data.stars && typeof data.stars === 'object' ? data.stars : stars) as StarMap;
 }

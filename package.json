@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:verify": "vite-node scripts/build-verify.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "grade": "vite-node scripts/grade.ts"
+    "grade": "vite-node scripts/grade.ts",
+    "server": "node --experimental-sqlite server/index.mjs"
   },
   "dependencies": {
     "pixi.js": "^8.6.6",

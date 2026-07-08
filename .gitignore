@@ -4,3 +4,4 @@ dist/
 grader/
 .cache/
 server/data.db
+server/lib/

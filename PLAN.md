@@ -115,32 +115,22 @@ alone.
 
 ---
 
-## Phase 4 — Game-feel & onboarding (polish that sells it) 🟡
+## Phase 4 — Game-feel & onboarding (polish that sells it) ✅
 
 > Shipped: guided tutorial, typography, corridor bundling, day/night wash,
-> Share card. Remaining: audio / ambient bed.
+> Share card, and **procedural audio** (ambient bed + build/win/fail cues,
+> Mute in the HUD).
 
 ---
 
-## Phase 5 — Retention & meta (live-game layer) 🟡
+## Phase 5 — Retention & meta (live-game layer) ✅
 
-> Shipped: **command log** on every successful command, **replay envelope** in
-> saves + score submit, **daily challenge** (shared seed from UTC date), and
-> server storage of `stateHash` / command log for audit. Full server-side
-> headless re-sim of OSM cities remains a follow-up (client + CI verify today).
+> Shipped: command log, **full server-side OSM replay verification**
+> (`server/lib/verify.mjs` via `npm run build:verify`), daily challenge,
+> replay-envelope scores, and **cloud-synced campaign stars** (`/api/campaign`).
 
-**Goal:** leverage the self-hosted backend (`server/index.mjs`) for a live game.
-
-- **Replay-validated leaderboards.** Saves are deterministic (command log +
-  `stateHash`). Validate submitted scores server-side by re-simulating the
-  command stream and checking the hash — anti-cheat most indie sims can't do.
-- **Daily/weekly challenge.** One seeded city + goal + shared board. The
-  retention engine.
-- **Profiles & cross-device progression.** Extend the accounts system to persist
-  campaign stars and best scores.
-
-**Files:** `server/index.mjs`, `core/save.ts`, `core/replay.ts`, `app/api.ts`,
-`app/daily.ts`, `app/App.tsx`.
+**Files:** `server/index.mjs`, `server/lib/verify.mjs`, `src/server/verifyEntry.ts`,
+`core/replay.ts`, `app/api.ts`, `app/daily.ts`, `app/audio.ts`, `content/campaign.ts`.
 
 ---
 

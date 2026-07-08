@@ -4,8 +4,9 @@ import type { UiState } from '@host/protocol';
 import { SimClient } from '@host/client';
 import { GOALS, completedGoalIds } from './goals';
 import type { Scenario } from './scenarios';
-import { loadStars, recordStars, starsForProgress, type StarMap } from '@content/campaign';
-import { loadAccount, submitScore, type Account } from './api';
+import { applyCloudStars, loadStars, persistStars, recordStars, starsForProgress, type StarMap } from '@content/campaign';
+import { fetchCampaign, loadAccount, pushCampaign, submitScore, type Account } from './api';
+import { sfxFail, sfxGood, unlockAudio } from './audio';
 import { loadTutorialDone, markTutorialDone, TUTORIAL_STEPS } from './tutorial';
 
 export type Tool = 'select' | 'station' | 'track' | 'route' | 'bulldoze';
@@ -42,6 +43,8 @@ interface AppState {
   runStars: number;
   account: Account | null;
   setAccount: (a: Account | null) => void;
+  /** pull/push campaign stars with the signed-in account */
+  syncCampaign: () => Promise<void>;
   tutorialActive: boolean;
   tutorialStep: number;
   advanceTutorial: () => void;
@@ -63,17 +66,19 @@ interface AppState {
 
 let toastId = 1;
 let scorePosted = false;
+let lastFailed: string | null = null;
 
 async function postVerifiedScore(sc: Scenario, ui: UiState, client: SimClient, token: string, pushToast: AppState['pushToast']): Promise<void> {
   try {
     const replay = await client.requestReplay();
-    await submitScore(token, {
+    const { verified } = await submitScore(token, {
       scenario: sc.scenarioId,
       value: sc.score(ui),
       city: sc.city,
       replay,
     });
-    pushToast('Score posted (replay verified)', 'good');
+    pushToast(verified ? 'Score verified on the server' : 'Score posted (pending verify)', 'good');
+    sfxGood();
   } catch {
     pushToast('Could not post score', 'warn');
   }
@@ -89,7 +94,10 @@ export const useStore = create<AppState>((set, get) => {
       for (const id of done) {
         if (!prev.includes(id)) {
           const g = GOALS.find((x) => x.id === id);
-          if (g) get().pushToast(`Goal complete — ${g.label}`, 'good');
+          if (g) {
+            get().pushToast(`Goal complete — ${g.label}`, 'good');
+            sfxGood();
+          }
         }
       }
       set({ ui, completedGoals: done });
@@ -102,11 +110,18 @@ export const useStore = create<AppState>((set, get) => {
       set({ mode: ui.unlockedModes[0]! });
     }
 
+    if (ui.failed && ui.failed !== lastFailed) {
+      lastFailed = ui.failed;
+      sfxFail();
+    }
+    if (!ui.failed) lastFailed = null;
+
     const sc = get().scenario;
     if (sc && !ui.failed) {
       const p = sc.progress(ui);
       if (!get().won && p >= 1) {
         set({ won: true });
+        sfxGood();
         const acct = get().account;
         if (acct && !scorePosted) {
           scorePosted = true;
@@ -117,8 +132,10 @@ export const useStore = create<AppState>((set, get) => {
       if (!sc.scenarioId.startsWith('daily-')) {
         const earned = starsForProgress(p);
         if (earned > (get().stars[sc.scenarioId] ?? 0)) {
-          set({ stars: recordStars(sc.scenarioId, earned), runStars: Math.max(earned, get().runStars) });
+          const next = recordStars(sc.scenarioId, earned);
+          set({ stars: next, runStars: Math.max(earned, get().runStars) });
           get().pushToast(`${'★'.repeat(earned)} ${sc.city}: ${earned} star${earned > 1 ? 's' : ''}`, 'good');
+          if (get().account) void get().syncCampaign();
         } else if (earned > get().runStars) {
           set({ runStars: earned });
         }
@@ -154,7 +171,24 @@ export const useStore = create<AppState>((set, get) => {
     stars: loadStars(),
     runStars: 0,
     account: loadAccount(),
-    setAccount: (account) => set({ account }),
+    setAccount: (account) => {
+      set({ account });
+      if (account) void get().syncCampaign();
+    },
+    syncCampaign: async () => {
+      const acct = get().account;
+      if (!acct) return;
+      try {
+        const cloud = await fetchCampaign(acct.token);
+        const mergedLocal = applyCloudStars(cloud);
+        const pushed = await pushCampaign(acct.token, mergedLocal);
+        const final = applyCloudStars(pushed);
+        persistStars(final);
+        set({ stars: final });
+      } catch {
+        /* offline / unsigned — local stars still work */
+      }
+    },
     tutorialActive: false,
     tutorialStep: 0,
     advanceTutorial: () => {
@@ -184,6 +218,8 @@ export const useStore = create<AppState>((set, get) => {
     setUi: (ui) => set({ ui }),
     start: (seed, difficulty, opts) => {
       scorePosted = false;
+      lastFailed = null;
+      unlockAudio();
       client.init(seed, difficulty, opts);
       const teach = !loadTutorialDone();
       set({
@@ -202,6 +238,8 @@ export const useStore = create<AppState>((set, get) => {
     },
     startScenario: (s, seed) => {
       scorePosted = false;
+      lastFailed = null;
+      unlockAudio();
       client.init(seed, s.difficulty, { size: s.size, presetKey: s.cityKey, rules: s.rules });
       const teach = !loadTutorialDone() && !s.scenarioId.startsWith('daily-');
       const startMode = s.rules.startingModes[0] ?? 'bus';

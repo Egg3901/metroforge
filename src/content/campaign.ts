@@ -1,8 +1,7 @@
 // Campaign progression + entitlement — the stars analogue of ahd-sim's packs.
 // Each scenario is worth up to 3 stars, earned by how far past its goal you
-// finish. Banked stars unlock higher-tier cities. Persisted locally so a
-// player's campaign survives reloads (accounts can sync it later). Shared by
-// the picker (locks) and the win flow (awards).
+// finish. Banked stars unlock higher-tier cities. Persisted locally and, when
+// signed in, synced to the account via /api/campaign.
 import { REGISTRY_BY_ID, STARS_PER_SCENARIO, type ScenarioMeta } from './scenarioRegistry';
 
 const KEY = 'metroforge:stars';
@@ -22,7 +21,7 @@ export function loadStars(): StarMap {
   return {};
 }
 
-function persist(map: StarMap): void {
+export function persistStars(map: StarMap): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(map));
   } catch {
@@ -45,14 +44,31 @@ export function starsForProgress(progress: number): number {
   return 0;
 }
 
+/** Merge two star maps, keeping the best per scenario. */
+export function mergeStars(a: StarMap, b: StarMap): StarMap {
+  const out: StarMap = { ...a };
+  for (const id in b) {
+    const v = Math.min(STARS_PER_SCENARIO, Math.max(out[id] ?? 0, b[id] ?? 0));
+    if (v > 0) out[id] = v;
+  }
+  return out;
+}
+
 /** Record a run's stars, keeping the best; returns the updated map. */
 export function recordStars(scenarioId: string, stars: number): StarMap {
   const map = loadStars();
   if (stars > (map[scenarioId] ?? 0)) {
     map[scenarioId] = Math.min(STARS_PER_SCENARIO, stars);
-    persist(map);
+    persistStars(map);
   }
   return map;
+}
+
+/** Replace local stars with a merged cloud+local map and persist. */
+export function applyCloudStars(cloud: StarMap): StarMap {
+  const merged = mergeStars(loadStars(), cloud);
+  persistStars(merged);
+  return merged;
 }
 
 export function isUnlocked(meta: ScenarioMeta, banked: number): boolean {

@@ -16,9 +16,12 @@ All notable changes to MetroForge are documented here. Format follows
   fail overlay returns to the menu.
 - **Daily challenge.** Shared UTC-date seed + tightened clock; home-screen Daily
   tab with today's board.
-- **Command log + replay scores.** Every successful command is stamped; wins
-  submit `seed` / `stateHash` / `commandLog` for audit. Server stores the
-  envelope and rejects stale daily seeds.
+- **Server-side OSM replay verification.** `npm run build:verify` bundles the
+  sim + city JSON; `/api/score` re-sims the command log and rejects hash mismatches.
+- **Cloud campaign stars.** Signed-in accounts sync best-per-scenario stars via
+  `GET/POST /api/campaign` (merge-max with local).
+- **Procedural audio.** Soft ambient bed + station/track/route/win/fail cues;
+  Mute toggle in the HUD (persisted).
 - **Guided first-city tutorial.** Five interactive steps with auto tool/overlay,
   camera focus, skip, and home-screen replay.
 - **Typography.** Fraunces display + DM Sans for UI and map labels.
