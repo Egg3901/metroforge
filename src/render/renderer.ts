@@ -61,6 +61,8 @@ export class GameRenderer {
 
   // camera
   private scale = 0.09;
+  private targetScale = 0.09; // eased toward for buttery zoom
+  private zoomFocus = { x: 0, y: 0 }; // screen point to zoom about
   private cx = 0;
   private cy = 0;
   private dragging = false;
@@ -97,6 +99,7 @@ export class GameRenderer {
     this.drawRoads();
     this.buildMapLabels();
     this.scale = Math.min(this.app.screen.width, this.app.screen.height) / city.worldSize * 0.95;
+    this.targetScale = this.scale;
     this.cx = 0;
     this.cy = 0;
   }
@@ -343,6 +346,7 @@ export class GameRenderer {
         if (pinchDist > 0 && distNow > 0) {
           const before = this.screenToWorld(midX, midY);
           this.scale = Math.max(0.03, Math.min(2.5, this.scale * (distNow / pinchDist)));
+          this.targetScale = this.scale; // pinch is direct; keep the easer in sync
           const after = this.screenToWorld(midX, midY);
           this.cx += before.x - after.x;
           this.cy += before.y - after.y;
@@ -381,14 +385,10 @@ export class GameRenderer {
       (e) => {
         e.preventDefault();
         const rect = canvas.getBoundingClientRect();
-        const sx = e.clientX - rect.left;
-        const sy = e.clientY - rect.top;
-        const before = this.screenToWorld(sx, sy);
-        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-        this.scale = Math.max(0.03, Math.min(2.5, this.scale * factor));
-        const after = this.screenToWorld(sx, sy);
-        this.cx += before.x - after.x;
-        this.cy += before.y - after.y;
+        // set a zoom target about the cursor; tick() eases toward it
+        this.zoomFocus = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
+        this.targetScale = Math.max(0.03, Math.min(2.5, this.targetScale * factor));
       },
       { passive: false },
     );
@@ -920,6 +920,20 @@ export class GameRenderer {
 
   private tick(): void {
     this.clock += this.app.ticker.deltaMS;
+    // buttery zoom: ease scale toward the target, keeping the focal point fixed
+    if (Math.abs(this.scale - this.targetScale) > 1e-5) {
+      const f = this.zoomFocus;
+      const before = this.screenToWorld(f.x, f.y);
+      const k = 1 - Math.pow(0.0006, this.app.ticker.deltaMS / 1000); // frame-rate independent
+      this.scale += (this.targetScale - this.scale) * k;
+      if (Math.abs(this.scale - this.targetScale) < this.targetScale * 0.001) this.scale = this.targetScale;
+      const after = this.screenToWorld(f.x, f.y);
+      this.cx += before.x - after.x;
+      this.cy += before.y - after.y;
+      const half = (this.city?.worldSize ?? 12000) / 2;
+      this.cx = Math.max(-half, Math.min(half, this.cx));
+      this.cy = Math.max(-half, Math.min(half, this.cy));
+    }
     // camera transform
     this.world.scale.set(this.scale);
     this.world.position.set(
@@ -927,18 +941,34 @@ export class GameRenderer {
       this.app.screen.height / 2 - this.cy * this.scale,
     );
     this.labels.visible = this.scale > 0.12;
-    // map labels: constant on-screen size, revealed by importance as you zoom in
+    // map labels: constant on-screen size, revealed by importance as you zoom in,
+    // then decluttered so nothing overlaps
     const targetPx = 13;
+    const cand: { it: { t: Text; imp: number; kind: string }; sx: number; sy: number; hw: number; hh: number; pri: number }[] = [];
     for (const it of this.mapLabelItems) {
-      let show: boolean;
-      if (it.kind === 'water') show = this.scale > (it.imp > 2.4 ? 0.045 : it.imp > 1.4 ? 0.09 : 0.18);
-      else if (it.kind === 'park') show = this.scale > (it.imp > 1.8 ? 0.07 : it.imp > 1.2 ? 0.14 : 0.26);
-      else show = this.scale > (it.imp > 2 ? 0.28 : 0.42); // arterials label before collectors
-      it.t.visible = show;
-      if (show) {
-        const base = it.kind === 'road' ? 26 : 30 + Math.min(3, it.imp) * 5;
-        it.t.scale.set(targetPx / (base * this.scale));
+      it.t.visible = false;
+      let gate: boolean;
+      if (it.kind === 'water') gate = this.scale > (it.imp > 2.4 ? 0.045 : it.imp > 1.4 ? 0.09 : 0.18);
+      else if (it.kind === 'park') gate = this.scale > (it.imp > 1.8 ? 0.07 : it.imp > 1.2 ? 0.14 : 0.26);
+      else gate = this.scale > (it.imp > 2 ? 0.28 : 0.42);
+      if (!gate) continue;
+      const base = it.kind === 'road' ? 26 : 30 + Math.min(3, it.imp) * 5;
+      const v = targetPx / (base * this.scale);
+      it.t.scale.set(v);
+      const s = this.worldToScreen(it.t.x, it.t.y);
+      const w = it.t.width * v * this.scale;
+      const h = it.t.height * v * this.scale;
+      cand.push({ it, sx: s.x, sy: s.y, hw: w / 2 + 3, hh: h / 2 + 2, pri: it.imp + (it.kind !== 'road' ? 1.5 : 0) });
+    }
+    cand.sort((a, b) => b.pri - a.pri);
+    const placed: typeof cand = [];
+    for (const c of cand) {
+      let ok = c.sx > -50 && c.sx < this.app.screen.width + 50 && c.sy > 0 && c.sy < this.app.screen.height;
+      for (let i = 0; ok && i < placed.length; i++) {
+        const p = placed[i]!;
+        if (Math.abs(c.sx - p.sx) < c.hw + p.hw && Math.abs(c.sy - p.sy) < c.hh + p.hh) ok = false;
       }
+      if (ok) { c.it.t.visible = true; placed.push(c); }
     }
     // LOD: local streets & buildings fade in as you zoom toward street level
     const lodT = Math.max(0, Math.min(1, (this.scale - 0.075) / 0.09));
