@@ -41,6 +41,7 @@ function sendStatic(s: GameState): void {
       roadScale: s.roads.length > 3000 ? 0.28 : s.roads.length > 1500 ? 0.5 : 1,
       waterMask: s.osmWaterMask,
       parkMask: s.osmParkMask,
+      buildingMask: s.osmBuildingMask,
       maskRes: s.osmMaskRes,
       labels: s.osmLabels,
       roads: s.roads.map((r) => ({

@@ -37,6 +37,8 @@ const CITIES: CityCfg[] = [
   { key: 'boston', label: 'Boston', bbox: [42.33, -71.11, 42.40, -71.02] },
   { key: 'chicago', label: 'Chicago', bbox: [41.83, -87.70, 41.95, -87.58] },
   { key: 'cleveland', label: 'Cleveland', bbox: [41.45, -81.75, 41.54, -81.63] },
+  { key: 'la', label: 'Los Angeles', bbox: [33.99, -118.30, 34.10, -118.18] },
+  { key: 'atlanta', label: 'Atlanta', bbox: [33.72, -84.44, 33.82, -84.34] },
 ];
 
 type LL = { lat: number; lon: number };
@@ -194,6 +196,11 @@ function build(cfg: CityCfg): void {
     `${cfg.key}-parks`,
   );
   const parkRings = ringsOf(parkEls);
+  // real building footprints (rasterized to a coverage mask, not stored as vectors)
+  const buildingEls = fetchRaw(
+    `[out:json][timeout:180];(way["building"](${bb});relation["building"](${bb}););out geom;`,
+    `${cfg.key}-buildings`,
+  );
 
   // equirectangular projection around bbox center, north-up, fit to world square
   const lat0 = (s + n) / 2;
@@ -285,7 +292,7 @@ function build(cfg: CityCfg): void {
   // Fully deterministic: no coastline side-test, no flood, no seeds. ──
   void cellOf;
   const water = new Uint8Array(N * N);
-  const fillPoly = (poly: number[], val: number): void => {
+  const fillInto = (grid: Uint8Array, poly: number[], val: number): void => {
     let minY = 1e9, maxY = -1e9;
     for (let k = 1; k < poly.length; k += 2) { minY = Math.min(minY, poly[k]!); maxY = Math.max(maxY, poly[k]!); }
     const r0 = Math.max(0, Math.floor((minY + HALF) / cellW));
@@ -301,12 +308,20 @@ function build(cfg: CityCfg): void {
       for (let m = 0; m + 1 < xs.length; m += 2) {
         const c0 = Math.max(0, Math.ceil((xs[m]! + HALF) / cellW - 0.5));
         const c1 = Math.min(N - 1, Math.floor((xs[m + 1]! + HALF) / cellW - 0.5));
-        for (let c = c0; c <= c1; c++) water[r * N + c] = val;
+        for (let c = c0; c <= c1; c++) grid[r * N + c] = val;
       }
     }
   };
-  for (const p of waterOuter) fillPoly(p, 1); // water areas
-  for (const p of waterInner) fillPoly(p, 0); // land holes inside them
+  for (const p of waterOuter) fillInto(water, p, 1); // water areas
+  for (const p of waterInner) fillInto(water, p, 0); // land holes inside them
+
+  // building coverage mask: rasterize real OSM footprints (40k+ per city) into
+  // the grid — cheap regardless of count, renders as elegant flat city blocks
+  const buildingBits = new Uint8Array(N * N);
+  const buildingR = classifyRings(buildingEls);
+  for (const ring of buildingR.outers) fillInto(buildingBits, ring.map(P).flat(), 1);
+  for (const ring of buildingR.inners) fillInto(buildingBits, ring.map(P).flat(), 0);
+  for (let i = 0; i < buildingBits.length; i++) if (water[i]) buildingBits[i] = 0; // never on water
 
   // bake final masks
   const bits = new Uint8Array(N * N);
@@ -334,6 +349,7 @@ function build(cfg: CityCfg): void {
     maskRes: MASK_RES,
     waterMask: packMask(bits),
     parkMask: packMask(parkBits),
+    buildingMask: packMask(buildingBits),
     maskPacked: true,
     roads: outRoads,
     labels,
@@ -342,7 +358,7 @@ function build(cfg: CityCfg): void {
   const path = `src/data/cities/${cfg.key}.json`;
   writeFileSync(path, JSON.stringify(bundle));
   const kb = (JSON.stringify(bundle).length / 1024) | 0;
-  console.log(`${cfg.key}: ${outRoads.length} roads, ${ocean.outers.length} sea polys, ${waterOuter.length} water outers / ${waterInner.length} holes, ${parkPolys.length} parks → ${path} (${kb} KB)`);
+  console.log(`${cfg.key}: ${outRoads.length} roads, ${ocean.outers.length} sea, ${waterOuter.length} water, ${parkPolys.length} parks, ${buildingR.outers.length} buildings → ${path} (${kb} KB)`);
 }
 
 // Ramer–Douglas–Peucker

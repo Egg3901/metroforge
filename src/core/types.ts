@@ -166,6 +166,7 @@ export interface GameState {
   /** transient: high-res OSM water/park masks for crisp rendering (real cities only) */
   osmWaterMask?: Uint8Array | undefined;
   osmParkMask?: Uint8Array | undefined;
+  osmBuildingMask?: Uint8Array | undefined;
   osmMaskRes?: number | undefined;
   osmLabels?: import('./city/osmCity').MapLabel[] | undefined;
   budget: Budget;

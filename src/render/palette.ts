@@ -31,6 +31,9 @@ export const PALETTE = {
   sand: [74, 66, 49] as RGB,
   /** parks / green space */
   park: [30, 48, 37] as RGB,
+  /** real building-footprint fabric — a quiet lift off the land tone */
+  building: [51, 52, 48] as RGB,
+  buildingDense: [66, 66, 61] as RGB,
 
   // ── roads (muted, backgrounded) ──
   roadLocal: 0x333934,

@@ -73,6 +73,7 @@ export interface StaticCity {
    *  real-city coastline/park rendering; absent for procedural cities */
   waterMask?: Uint8Array | undefined;
   parkMask?: Uint8Array | undefined;
+  buildingMask?: Uint8Array | undefined;
   maskRes?: number | undefined;
   labels?: import('@core/city/osmCity').MapLabel[] | undefined;
   roads: { cls: string; points: number[] }[];

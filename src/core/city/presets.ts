@@ -84,7 +84,8 @@ export const CITY_PRESETS: CityPreset[] = [
   {
     key: 'la',
     label: 'Los Angeles',
-    blurb: 'Low-slung grid sprawling to the ocean, no real downtown.',
+    real: true,
+    blurb: 'Real downtown LA: the sprawling grid and the LA River (OSM).',
     grid: { weight: 1.2, angleDeg: 12, rigid: true, noiseWeight: 0.12 },
     radialWeight: 0.9,
     water: { coast: true, coastAngleDeg: 210, coastInset: 0.85, river: false },
@@ -103,7 +104,8 @@ export const CITY_PRESETS: CityPreset[] = [
   {
     key: 'atlanta',
     label: 'Atlanta',
-    blurb: 'Landlocked sprawl fanning out along radial highways.',
+    real: true,
+    blurb: 'Real Atlanta: landlocked sprawl fanning out along the highways (OSM).',
     grid: { weight: 0.9, angleDeg: 20, rigid: false, noiseWeight: 0.3 },
     radialWeight: 3.2,
     water: { coast: false, coastAngleDeg: null, coastInset: 1, river: false },

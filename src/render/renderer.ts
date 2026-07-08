@@ -421,6 +421,7 @@ export class GameRenderer {
     };
     const hiWater = city.waterMask ?? null;
     const hiPark = city.parkMask ?? null;
+    const hiBuilding = city.buildingMask ?? null;
     const canvas = document.createElement('canvas');
     canvas.width = city.fieldW * PX;
     canvas.height = city.fieldH * PX;
@@ -502,6 +503,11 @@ export class GameRenderer {
           const urban = Math.sqrt(Math.max(0, pop)); // downtown reads as a lighter mass
           // land: deep neutral, lifting toward a warm urban tone with density.
           let col = mix(PAL.land, PAL.landUrban, Math.min(1, urban));
+          // real building fabric: a quiet lift off the land, denser downtown
+          if (hiBuilding && park < 0.2) {
+            const bf = sampleMask(hiBuilding, wxw, wyw);
+            if (bf > 0.12) col = mix(col, mix(PAL.building, PAL.buildingDense, Math.min(1, urban)), Math.min(1, bf) * 0.92);
+          }
           // park space (smooth-edged, crisp for real cities)
           if (park > 0.2) col = mix(col, PAL.park, Math.min(1, (park - 0.2) / 0.5));
           // warm sand just landward of the water, then a thin luminous shore line
@@ -585,6 +591,9 @@ export class GameRenderer {
     if (!city) return;
     const g = this.buildingsG;
     g.clear();
+    // real cities render their building fabric from the baked mask (in bakeGround);
+    // skip the procedural squares entirely.
+    if (city.buildingMask) return;
     // cheap coordinate hash → stable pseudo-random per lot
     const hash = (x: number, y: number): number => {
       let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0;

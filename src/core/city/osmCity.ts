@@ -14,6 +14,8 @@ export interface OsmCityData {
   waterMask: string;
   /** same grid, 1 = park/green (Central Park, Boston Common, …) */
   parkMask?: string;
+  /** same grid, 1 = real OSM building footprint coverage */
+  buildingMask?: string;
   /** masks are 1-bit-per-cell packed (vs legacy 1-byte-per-cell) */
   maskPacked?: boolean;
   roads: { cls: string; pts: number[] }[];

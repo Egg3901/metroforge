@@ -25,7 +25,8 @@ async function main(): Promise<void> {
   await page.goto(URL, { waitUntil: 'networkidle' });
 
   // new-game screen: pick the city, then start
-  await page.getByRole('button', { name: new RegExp(preset === 'nyc' ? 'New York' : preset, 'i') }).first().click();
+  const LABELS: Record<string, string> = { nyc: 'New York', la: 'Los Angeles', boston: 'Boston', chicago: 'Chicago', cleveland: 'Cleveland', atlanta: 'Atlanta' };
+  await page.getByRole('button', { name: LABELS[preset] ?? preset }).first().click();
   await page.getByRole('button', { name: /Found a Transit Authority/i }).click();
   await page.waitForTimeout(5000); // worker init + OSM load + first render
 
