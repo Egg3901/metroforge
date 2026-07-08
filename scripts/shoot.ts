@@ -12,6 +12,7 @@ import { chromium } from 'playwright-core';
 const preset = process.argv[2] ?? 'boston';
 const ZOOM_STEPS = Number(process.argv[3] ?? 14);
 const DEMO = process.argv.includes('demo');
+const TRAFFIC = process.argv.includes('traffic');
 const URL = 'http://localhost:4180' + (DEMO ? '/?dev=1' : '');
 
 async function main(): Promise<void> {
@@ -27,6 +28,12 @@ async function main(): Promise<void> {
   await page.getByRole('button', { name: new RegExp(preset === 'nyc' ? 'New York' : preset, 'i') }).first().click();
   await page.getByRole('button', { name: /Found a Transit Authority/i }).click();
   await page.waitForTimeout(5000); // worker init + OSM load + first render
+
+  if (TRAFFIC) {
+    await page.getByRole('button', { name: '60×' }).click().catch(() => {});
+    await page.getByRole('button', { name: /^Traffic$/ }).click().catch(() => {});
+    await page.waitForTimeout(16000); // advance clock to afternoon + several assignments
+  }
 
   if (DEMO) {
     // build a couple of demo transit lines via the exposed sim client

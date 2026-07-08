@@ -120,6 +120,17 @@ function nearestAlong(path: { points: { x: number; y: number }[]; cumulative: nu
   return out;
 }
 
+/** Time-of-day travel-demand multiplier: two rush peaks, a quiet night. ~0.35→1.9 */
+export function diurnalDemand(tick: number): number {
+  const hour = ((tick % TICKS_PER_DAY) / TICKS_PER_DAY) * 24;
+  const am = Math.exp(-((hour - 8) ** 2) / 6);
+  const pm = Math.exp(-((hour - 17.5) ** 2) / 8);
+  let f = 0.55 + 1.35 * (am + pm);
+  if (hour < 5.5) f *= 0.35;
+  else if (hour > 22) f *= 0.45;
+  return f;
+}
+
 export function refreshAssignment(state: GameState): void {
   const result = runAssignment(state);
   state.flows = result.flows;
@@ -154,8 +165,9 @@ export function refreshAssignment(state: GameState): void {
   }
   state.stats.coverage = totalPop > 0 ? covered / totalPop : 0;
 
-  // congestion overlay: where car demand chokes the road network
-  state.traffic = computeTraffic(state, result.carFlows);
+  // congestion overlay: scaled by a diurnal demand curve so traffic surges at
+  // the AM/PM rush and eases overnight
+  state.traffic = computeTraffic(state, result.carFlows, diurnalDemand(state.tick));
 }
 
 function runDailyEconomy(state: GameState, _day: number, events: TickEvents): void {

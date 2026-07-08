@@ -39,6 +39,7 @@ export class GameRenderer {
   private labels = new Container();
   private overlaySprite: Sprite | null = null;
   private coverageG = new Graphics();
+  private trafficRoadsG = new Graphics();
   private hotspotsG = new Graphics();
   private overlayMode: OverlayMode = 'none';
   private traffic: TrafficPayload | null = null;
@@ -74,7 +75,7 @@ export class GameRenderer {
       autoDensity: true,
     });
     host.appendChild(this.app.canvas);
-    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.tracksG, this.routesG, this.coverageG, this.hotspotsG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
+    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.trafficRoadsG, this.tracksG, this.routesG, this.coverageG, this.hotspotsG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
     this.app.stage.addChild(this.world);
     this.attachInput(this.app.canvas);
     this.app.ticker.add(() => this.tick());
@@ -148,6 +149,7 @@ export class GameRenderer {
     const city = this.city;
     const f = this.fieldsPayload;
     this.coverageG.clear();
+    this.trafficRoadsG.clear();
     if (this.overlaySprite) {
       this.overlaySprite.visible = false;
     }
@@ -167,7 +169,7 @@ export class GameRenderer {
     }
 
     if (this.overlayMode === 'traffic') {
-      this.bakeTraffic();
+      this.bakeTrafficRoads();
       return;
     }
 
@@ -236,58 +238,48 @@ export class GameRenderer {
     this.overlaySprite.height = H * city.cellSize;
   }
 
-  /** Congestion heatmap: green (free flow) → amber → red (gridlock). */
-  private bakeTraffic(): void {
+  /** Traffic overlay: color the actual congested streets (crisp, never over
+   *  water), green (free flow) → amber → red (gridlock). Sampled from the
+   *  congestion field along each road. */
+  private bakeTrafficRoads(): void {
     const city = this.city;
     const t = this.traffic;
+    const g = this.trafficRoadsG;
+    g.clear();
     if (!city || !t) return;
-    const W = t.w;
-    const H = t.h;
-    const PX = 4;
-    const canvas = document.createElement('canvas');
-    canvas.width = W * PX;
-    canvas.height = H * PX;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const img = ctx.createImageData(W * PX, H * PX);
-    const data = img.data;
-    // ramp stops at v = 0, .5, 1
-    const ramp = (v: number): [number, number, number] => {
-      if (v < 0.5) {
-        const k = v / 0.5; // green → amber
-        return [Math.round(80 + k * 175), Math.round(200 - k * 20), Math.round(90 - k * 40)];
-      }
-      const k = (v - 0.5) / 0.5; // amber → red
-      return [Math.round(255), Math.round(180 - k * 130), Math.round(50 - k * 20)];
+    const congAt = (x: number, y: number): number => {
+      const cx = Math.floor((x - t.originX) / t.cellSize);
+      const cy = Math.floor((y - t.originY) / t.cellSize);
+      if (cx < 0 || cy < 0 || cx >= t.w || cy >= t.h) return 0;
+      return t.values[cy * t.w + cx] as number;
     };
-    for (let py = 0; py < H * PX; py++) {
-      for (let px = 0; px < W * PX; px++) {
-        const i = Math.floor(py / PX) * W + Math.floor(px / PX);
-        const v = t.values[i] as number;
-        const o = (py * W * PX + px) * 4;
-        if (v <= 0.02) { data[o + 3] = 0; continue; }
-        const [r, g, b] = ramp(Math.min(1, v));
-        data[o] = r;
-        data[o + 1] = g;
-        data[o + 2] = b;
-        data[o + 3] = Math.round(40 + Math.min(1, v) * 165);
+    const ramp = (v: number): number => {
+      // green → amber → red
+      let r: number, gr: number, b: number;
+      if (v < 0.5) { const k = v / 0.5; r = 90 + k * 165; gr = 200 - k * 40; b = 90 - k * 50; }
+      else { const k = (v - 0.5) / 0.5; r = 255; gr = 160 - k * 130; b = 40; }
+      return (Math.round(r) << 16) | (Math.round(gr) << 8) | Math.round(b);
+    };
+    const rs = city.roadScale ?? 1;
+    // draw each road segment tinted by the congestion at its midpoint; only
+    // segments with real load light up, so free-flowing streets stay dark.
+    for (const road of city.roads) {
+      if (road.cls === 'local') continue; // arterials/collectors carry the traffic
+      const p = road.points;
+      for (let i = 0; i + 3 < p.length; i += 2) {
+        const ax = p[i] as number, ay = p[i + 1] as number;
+        const bx = p[i + 2] as number, by = p[i + 3] as number;
+        const v = congAt((ax + bx) / 2, (ay + by) / 2);
+        if (v < 0.12) continue;
+        const w = (road.cls === 'arterial' ? 34 : 22) * rs * (0.7 + v * 0.6);
+        g.moveTo(ax, ay);
+        g.lineTo(bx, by);
+        g.stroke({ width: w * 1.7, color: ramp(v), alpha: 0.12 * v, cap: 'round' }); // glow
+        g.moveTo(ax, ay);
+        g.lineTo(bx, by);
+        g.stroke({ width: w, color: ramp(v), alpha: 0.55 + v * 0.4, cap: 'round' });
       }
     }
-    ctx.putImageData(img, 0, 0);
-    const tex = Texture.from(canvas);
-    if (this.overlaySprite) {
-      this.overlaySprite.texture.destroy(true);
-      this.overlaySprite.texture = tex;
-      this.overlaySprite.visible = true;
-    } else {
-      this.overlaySprite = new Sprite(tex);
-      const idx = this.world.getChildIndex(this.coverageG);
-      this.world.addChildAt(this.overlaySprite, idx);
-    }
-    this.overlaySprite.x = t.originX;
-    this.overlaySprite.y = t.originY;
-    this.overlaySprite.width = W * t.cellSize;
-    this.overlaySprite.height = H * t.cellSize;
   }
 
   // ── coordinate transforms ──────────────────────────────────────────────────

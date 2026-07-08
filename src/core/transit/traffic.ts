@@ -34,6 +34,10 @@ export interface TrafficField {
 
 // Road capacity is a pure function of the (immutable) road network — cache it.
 const capacityCache = new WeakMap<RoadEdge[], Float32Array>();
+// A stable congestion reference per network so the overlay reflects ABSOLUTE
+// load — it surges at rush hour and eases at night instead of self-normalizing
+// to look identical every recompute.
+const refCache = new WeakMap<RoadEdge[], number>();
 
 /** How much throughput each road class contributes to a cell it passes through. */
 const CLASS_CAPACITY: Record<string, number> = { arterial: 6, collector: 3.5, local: 1.4 };
@@ -95,7 +99,7 @@ function blur(arr: Float32Array, w: number, h: number): void {
   arr.set(next);
 }
 
-export function computeTraffic(state: GameState, carFlows: CarFlow[]): TrafficField {
+export function computeTraffic(state: GameState, carFlows: CarFlow[], demandScale = 1): TrafficField {
   const g = state.fields;
   const W = g.w;
   const H = g.h;
@@ -120,6 +124,7 @@ export function computeTraffic(state: GameState, carFlows: CarFlow[]): TrafficFi
       const cx = Math.floor((x - g.originX) / g.cellSize);
       const cy = Math.floor((y - g.originY) / g.cellSize);
       if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
+      if ((g.water[cy * W + cx] as number) === 1) continue; // no congestion on water
       load[cy * W + cx] = (load[cy * W + cx] as number) + per;
     }
   }
@@ -127,22 +132,28 @@ export function computeTraffic(state: GameState, carFlows: CarFlow[]): TrafficFi
 
   // Congestion = demand / capacity. Cells with demand but no road choke hardest.
   const cap = roadCapacityField(state);
-  const values = new Float32Array(W * H);
-  const ratios: number[] = [];
+  const ratio = new Float32Array(W * H);
+  const baseRatios: number[] = [];
   for (let i = 0; i < W * H; i++) {
     const l = load[i] as number;
-    if (l <= 0) continue;
-    const r = l / ((cap[i] as number) * 90 + 1); // 90 trips/day per capacity unit ~ free flow
-    values[i] = r;
-    ratios.push(r);
+    if (l <= 0 || (g.water[i] as number) === 1) continue;
+    const r = l / ((cap[i] as number) * 90 + 1); // baseline (unscaled) demand/capacity
+    ratio[i] = r;
+    baseRatios.push(r);
   }
-  if (ratios.length === 0) {
+  const values = new Float32Array(W * H);
+  if (baseRatios.length === 0) {
     return { w: W, h: H, cellSize: g.cellSize, originX: g.originX, originY: g.originY, values, hotspots: [] };
   }
-  // normalize against a high percentile so a couple of outliers don't wash it out
-  ratios.sort((p, q) => p - q);
-  const norm = Math.max(1e-6, ratios[Math.floor(ratios.length * 0.95)] as number);
-  for (let i = 0; i < values.length; i++) values[i] = Math.min(1, (values[i] as number) / norm);
+  // Fixed reference (first-seen 95th percentile) so absolute load shows through:
+  // rush-hour demandScale pushes more streets red; night eases them green.
+  let ref = refCache.get(state.roads);
+  if (ref === undefined) {
+    const sorted = [...baseRatios].sort((p, q) => p - q);
+    ref = Math.max(1e-6, (sorted[Math.floor(sorted.length * 0.92)] as number) * 1.25);
+    refCache.set(state.roads, ref);
+  }
+  for (let i = 0; i < values.length; i++) values[i] = Math.min(1, ((ratio[i] as number) * demandScale) / ref);
 
   // Hotspots: local maxima above a threshold, spaced apart, worst first.
   const HOT = 0.55;
