@@ -436,10 +436,12 @@ export class GameRenderer {
       if (road.cls !== 'local') continue;
       const pts = road.points;
       if (pts.length < 4) continue;
-      const ax = pts[0] as number;
-      const ay = pts[1] as number;
-      const bx = pts[pts.length - 2] as number;
-      const by = pts[pts.length - 1] as number;
+      // curved polylines: place lots per segment
+      for (let si = 0; si + 3 < pts.length; si += 2) {
+      const ax = pts[si] as number;
+      const ay = pts[si + 1] as number;
+      const bx = pts[si + 2] as number;
+      const by = pts[si + 3] as number;
       const len = Math.hypot(bx - ax, by - ay);
       if (len < 40) continue;
       const ux = (bx - ax) / len;
@@ -471,6 +473,7 @@ export class GameRenderer {
           const pal = towerness > 0.45 ? towerPalette : housePalette;
           g.fill({ color: pal[(r * pal.length) | 0] ?? 0x5c554a });
         }
+      }
       }
     }
   }
