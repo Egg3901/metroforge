@@ -178,6 +178,8 @@ export interface AssignmentOutput {
   routeRevenue: Map<number, number>;
   stationBoardings: Map<number, number>;
   stationAlightings: Map<number, number>;
+  /** per-segment load keyed `${routeId}:${minStationId}:${maxStationId}` */
+  segmentLoad: Map<string, number>;
   unserved: UnservedDesire[];
   dailyTransitTrips: number;
   dailyCarTrips: number;
@@ -192,7 +194,9 @@ export function runAssignment(state: GameState): AssignmentOutput {
   const routeRevenue = new Map<number, number>();
   const stationBoardings = new Map<number, number>();
   const stationAlightings = new Map<number, number>();
+  const segmentLoad = new Map<string, number>();
   const unserved: UnservedDesire[] = [];
+  const segKey = (rid: number, a: number, b: number): string => `${rid}:${Math.min(a, b)}:${Math.max(a, b)}`;
   let dailyTransitTrips = 0;
   let dailyCarTrips = 0;
 
@@ -317,6 +321,15 @@ export function runAssignment(state: GameState): AssignmentOutput {
       let guard = 0;
       while (node >= 0 && guard++ < 512) {
         if ((graph.nodeRoute[node] as number) === -1) stationIds.push(graph.nodeStation[node] as number);
+        // ride edge: node and its predecessor are route nodes on the same route
+        const pn = prevNode[node] as number;
+        if (pn >= 0) {
+          const nr = graph.nodeRoute[node] as number;
+          if (nr >= 0 && nr === (graph.nodeRoute[pn] as number)) {
+            const k = segKey(nr, graph.nodeStation[node] as number, graph.nodeStation[pn] as number);
+            segmentLoad.set(k, (segmentLoad.get(k) ?? 0) + transitTrips);
+          }
+        }
         const viaRoute = prevRoute[node] as number;
         if (viaRoute >= 0 && routeIds[routeIds.length - 1] !== viaRoute) {
           // record on boarding transitions only (street -> route node)
@@ -360,5 +373,5 @@ export function runAssignment(state: GameState): AssignmentOutput {
   unserved.sort((a, b) => b.weight - a.weight);
   unserved.length = Math.min(unserved.length, MAX_UNSERVED_LINES);
 
-  return { flows, carFlows, routeRidership, routeRevenue, stationBoardings, stationAlightings, unserved, dailyTransitTrips, dailyCarTrips };
+  return { flows, carFlows, routeRidership, routeRevenue, stationBoardings, stationAlightings, segmentLoad, unserved, dailyTransitTrips, dailyCarTrips };
 }

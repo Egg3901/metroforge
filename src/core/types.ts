@@ -94,6 +94,8 @@ export interface RouteDef {
   load: number;
   /** load / capacity; >1 is over capacity. Feeds the crowding penalty (lagged). */
   crowding: number;
+  /** derived per-segment daily load, aligned to segmentIds (from assignment) */
+  segmentLoads: number[];
 }
 
 export interface VehicleState {

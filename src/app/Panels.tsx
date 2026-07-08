@@ -274,6 +274,33 @@ export function RoutePanel(): React.JSX.Element | null {
             onChange={(e) => edit({ fare: Number(e.target.value) })}
           />
         </label>
+        {route.segmentLoads.some((l) => l > 0) && (() => {
+          const stationName = (sid: number): string => ui.stations.find((s) => s.id === sid)?.name ?? '?';
+          const maxSeg = Math.max(1, ...route.segmentLoads);
+          return (
+            <div>
+              <div className="text-xs text-zinc-500 uppercase mb-1">Load by segment</div>
+              <div className="space-y-1">
+                {route.segmentLoads.map((load, i) => {
+                  // segment crowding = peak-hour link load vs the line's capacity
+                  const cr = route.capacity > 0 ? (load * 0.14) / route.capacity : 0;
+                  const ci = crowdInfo(cr);
+                  return (
+                    <div key={i} className="text-[11px]">
+                      <div className="flex justify-between text-zinc-400">
+                        <span className="truncate pr-2">{stationName(route.stationIds[i]!)} → {stationName(route.stationIds[i + 1]!)}</span>
+                        <span className="font-mono shrink-0" style={{ color: ci.color }}>{Math.round(load).toLocaleString()}</span>
+                      </div>
+                      <div className="h-1 rounded-full bg-zinc-800 overflow-hidden mt-0.5">
+                        <div className="h-full rounded-full" style={{ width: `${(load / maxSeg) * 100}%`, background: ci.color }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
         <button
           className="w-full py-1.5 rounded bg-red-900/50 hover:bg-red-900 text-red-200 text-xs"
           onClick={() => {

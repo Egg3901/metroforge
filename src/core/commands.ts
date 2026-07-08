@@ -162,6 +162,7 @@ export function applyCommand(state: GameState, cmd: Command): CommandResult {
         capacity: 0,
         load: 0,
         crowding: 0,
+        segmentLoads: [],
       });
       // starter fleet: 2 vehicles if affordable, so new routes run immediately
       const starterCost = 2 * cfg.vehicleCost;

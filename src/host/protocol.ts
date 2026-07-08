@@ -40,6 +40,7 @@ export interface UiRoute {
   capacity: number;
   load: number;
   crowding: number;
+  segmentLoads: number[];
 }
 
 export interface UiState {

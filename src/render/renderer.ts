@@ -879,31 +879,41 @@ export class GameRenderer {
       for (let i = 2; i < path.length; i += 2) g.lineTo(path[i] as number, path[i + 1] as number);
       g.stroke({ width: w, color, alpha, cap: 'round', join: 'round' });
     };
+    // global busiest segment, so ribbon thickness reads relative across lines
+    let maxSegLoad = 1;
+    for (const r of ui.routes) for (const l of r.segmentLoads ?? []) if (l > maxSegLoad) maxSegLoad = l;
     this.routePaths = [];
     for (const r of ui.routes) {
       const path: number[] = [];
+      const segPaths: { pts: number[]; load: number }[] = [];
       for (let i = 0; i + 1 < r.stationIds.length; i++) {
         const a = r.stationIds[i] as number;
         const b = r.stationIds[i + 1] as number;
         const seg = trackByPair.get(`${a}:${b}`);
+        const segPts: number[] = [];
         if (seg && seg.length >= 4) {
-          if (path.length === 0) path.push(seg[0] as number, seg[1] as number);
-          for (let j = 2; j < seg.length; j += 2) path.push(seg[j] as number, seg[j + 1] as number);
+          for (let j = 0; j < seg.length; j += 2) segPts.push(seg[j] as number, seg[j + 1] as number);
         } else {
           const sa = stationById.get(a);
           const sb = stationById.get(b);
-          if (sa && sb) {
-            if (path.length === 0) path.push(sa.x, sa.y);
-            path.push(sb.x, sb.y);
-          }
+          if (sa && sb) segPts.push(sa.x, sa.y, sb.x, sb.y);
+        }
+        if (segPts.length >= 4) {
+          if (path.length === 0) path.push(segPts[0] as number, segPts[1] as number);
+          for (let j = 2; j < segPts.length; j += 2) path.push(segPts[j] as number, segPts[j + 1] as number);
+          segPaths.push({ pts: segPts, load: (r.segmentLoads ?? [])[i] ?? 0 });
         }
       }
       if (path.length < 4) continue;
-      // hero treatment: soft glow → dark casing → bright line
+      // hero treatment: soft glow → dark casing
       strokePath(path, 44, r.color, 0.08);
       strokePath(path, 28, r.color, 0.16);
       strokePath(path, 22, PAL.void, 0.9);
-      strokePath(path, 12, r.color, 1);
+      // bright core, per segment, widening with how many people ride that link
+      for (const sp of segPaths) {
+        const t = Math.min(1, sp.load / maxSegLoad);
+        strokePath(sp.pts, 8 + t * 10, r.color, 1);
+      }
       // arc-length table for animated passenger-flow motes (drawn per-frame)
       const cum: number[] = [0];
       let total = 0;

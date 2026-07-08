@@ -147,6 +147,12 @@ export function refreshAssignment(state: GameState): void {
     r.capacity = r.vehicleCount > 0 ? (cfg.vehicleCapacity * 3600) / r.headwaySeconds : 0;
     r.load = r.dailyRidership * PEAK_HOUR_FRACTION;
     r.crowding = r.capacity > 0 ? r.load / r.capacity : r.load > 0 ? 2 : 0;
+    // per-segment load, aligned to segmentIds (segment i joins stop i and i+1)
+    r.segmentLoads = r.segmentIds.map((_, i) => {
+      const a = r.stationIds[i] as number;
+      const b = r.stationIds[i + 1] as number;
+      return result.segmentLoad.get(`${r.id}:${Math.min(a, b)}:${Math.max(a, b)}`) ?? 0;
+    });
   }
   for (const s of state.stations) {
     // rolling blend so numbers move smoothly
