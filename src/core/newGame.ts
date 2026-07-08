@@ -1,10 +1,19 @@
 import { STARTING_CASH } from './constants';
 import { generateCity } from './city/generator';
+import { MAP_SIZE_METERS, presetByKey, type MapSize } from './city/presets';
 import { Rng } from './rng';
 import type { Difficulty, GameState } from './types';
 
-export function newGame(seed: number, difficulty: Difficulty): GameState {
-  const city = generateCity(seed, difficulty);
+export interface NewGameOptions {
+  size?: MapSize | undefined;
+  presetKey?: string | undefined;
+}
+
+export function newGame(seed: number, difficulty: Difficulty, options: NewGameOptions = {}): GameState {
+  const city = generateCity(seed, difficulty, {
+    worldSize: options.size ? MAP_SIZE_METERS[options.size] : undefined,
+    preset: presetByKey(options.presetKey),
+  });
   const rng = new Rng((seed ^ 0x5bd1e995) >>> 0);
   let population = 0;
   let jobs = 0;

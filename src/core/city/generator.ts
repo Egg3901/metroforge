@@ -7,6 +7,7 @@
  * Population comes BEFORE streets; street density follows people.
  */
 import { WORLD_SIZE } from '../constants';
+import { presetByKey, type CityPreset } from './presets';
 import { cellCenter, cellIndexAt, createFieldGrid } from '../fields';
 import { Noise2D, clamp, makePolyline, vec } from '../geometry';
 import type { Vec2 } from '../geometry';
@@ -14,8 +15,10 @@ import { Rng } from '../rng';
 import type { District, Difficulty, FieldGrid, RoadEdge } from '../types';
 import { traceStreamlines } from './streamlines';
 import type { TensorField } from './tensor';
+import { districtName, uniqueNames } from './names';
 
-const HALF = WORLD_SIZE / 2;
+const DEFAULT_HALF = WORLD_SIZE / 2;
+void DEFAULT_HALF;
 
 /** Signed smallest angle from b to a. */
 function angleDelta(a: number, b: number): number {
@@ -55,24 +58,39 @@ function decimate(pts: Vec2[]): Vec2[] {
   return out.map((p) => vec(Math.round(p.x), Math.round(p.y)));
 }
 
-export function generateCity(seed: number, difficulty: Difficulty): GeneratedCity {
+export interface GenerateOptions {
+  worldSize?: number | undefined;
+  preset?: CityPreset | undefined;
+}
+
+export function generateCity(seed: number, difficulty: Difficulty, opts: GenerateOptions = {}): GeneratedCity {
+  const preset = opts.preset ?? presetByKey('generic');
   const rng = new Rng(seed);
   const terrainNoise = new Noise2D(() => rng.nextUint());
   const detailNoise = new Noise2D(() => rng.nextUint());
-  const fields = createFieldGrid();
+  const fields = createFieldGrid(opts.worldSize);
+  const worldSize = fields.w * fields.cellSize;
+  const HALF = worldSize / 2;
 
-  // ── Terrain + coastal water ──
-  const waterAngle = rng.range(0, Math.PI * 2);
+  // ── Terrain + coastal water (preset-controlled) ──
+  const w = preset.water;
+  const waterAngle = w.coastAngleDeg !== null ? (w.coastAngleDeg * Math.PI) / 180 : rng.range(0, Math.PI * 2);
   const waterDir = vec(Math.cos(waterAngle), Math.sin(waterAngle));
-  const waterOffset = rng.range(0.55, 0.85) * HALF;
+  const waterOffset = w.coastInset * HALF;
 
   for (let cy = 0; cy < fields.h; cy++) {
     for (let cx = 0; cx < fields.w; cx++) {
       const i = cy * fields.w + cx;
       const p = cellCenter(fields, i);
-      const nx = p.x / WORLD_SIZE;
-      const ny = p.y / WORLD_SIZE;
+      const nx = p.x / worldSize;
+      const ny = p.y / worldSize;
       let elev = terrainNoise.fbm(nx * 4 + 10, ny * 4 + 10, 4);
+      // landlocked presets keep the noise but never dip below the waterline
+      if (!w.coast) {
+        fields.terrain[i] = clamp(0.35 + elev * 0.5, 0, 1);
+        fields.water[i] = 0;
+        continue;
+      }
       const coastDist = p.x * waterDir.x + p.y * waterDir.y - waterOffset;
       if (coastDist > 0) elev -= (coastDist / HALF) * 0.9;
       fields.terrain[i] = clamp(elev, 0, 1);
@@ -81,7 +99,7 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
   }
 
   // ── River: meanders from an inland edge downhill to the sea ──
-  {
+  if (w.river) {
     const startAngle = waterAngle + Math.PI + rng.range(-0.5, 0.5);
     let px = Math.cos(startAngle) * HALF * 0.95;
     let py = Math.sin(startAngle) * HALF * 0.95;
@@ -179,18 +197,20 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
     const c = cellCenter(fields, i);
     const dCbd = Math.hypot(c.x - cbd.x, c.y - cbd.y);
     const noise = detailNoise.fbm(c.x / 3000 + 50, c.y / 3000 + 50, 3);
-    let pop = Math.exp(-dCbd / 2600);
+    // sprawl stretches the decay lengths: >1 spreads people out toward the edges
+    const sp = preset.sprawl;
+    let pop = Math.exp(-dCbd / (2600 * sp));
     for (const s of subcenters) {
       const dS = Math.hypot(c.x - s.x, c.y - s.y);
-      pop += 0.45 * Math.exp(-dS / 1400);
+      pop += 0.45 * Math.exp(-dS / (1400 * sp));
     }
     pop *= 0.45 + noise;
     rawPop[i] = pop;
     rawPopSum += pop;
-    let jobs = Math.exp(-dCbd / 1100) * 3;
+    let jobs = Math.exp(-dCbd / (1100 * sp)) * 3;
     for (const s of subcenters) {
       const dS = Math.hypot(c.x - s.x, c.y - s.y);
-      jobs += Math.exp(-dS / 800) * 0.8;
+      jobs += Math.exp(-dS / (800 * sp)) * 0.8;
     }
     jobs *= 0.6 + noise;
     rawJobs[i] = jobs;
@@ -242,29 +262,35 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
   };
 
   // ── Tensor field: grid patches + CBD radial + water-boundary alignment ──
+  const baseAngle = (preset.grid.angleDeg * Math.PI) / 180;
   const field: TensorField = {
     grids: [],
     radialCenter: cbd,
-    radialWeight: 2.2,
+    radialWeight: preset.radialWeight,
     radialSigma: 2600,
     boundaries: [],
     boundarySigma: 550,
     boundaryWeight: 1.6,
     noise: (x, y) => detailNoise.at(x / 5200 + 400, y / 5200 + 400),
-    noiseWeight: 0.22,
+    noiseWeight: preset.grid.noiseWeight,
   };
-  // grid patches: at subcenters + random populated points, orientation snapped to 15°
+  // grid patches: at subcenters + random populated points. Rigid presets lock
+  // every patch to the preset bearing (Manhattan/Chicago grid); organic ones
+  // let each patch drift off a noise-snapped angle.
   const gridSeeds: Vec2[] = [...subcenters];
   for (let k = 0; k < 6; k++) {
     gridSeeds.push(vec(rng.range(-HALF * 0.8, HALF * 0.8), rng.range(-HALF * 0.8, HALF * 0.8)));
   }
   for (const gcenter of gridSeeds) {
     const raw = detailNoise.at(gcenter.x / 4200 + 200, gcenter.y / 4200 + 200) * Math.PI;
+    const theta = preset.grid.rigid
+      ? baseAngle
+      : baseAngle + Math.round(raw / (Math.PI / 12)) * (Math.PI / 12);
     field.grids.push({
       center: gcenter,
-      theta: Math.round(raw / (Math.PI / 12)) * (Math.PI / 12),
+      theta,
       sigma: rng.range(1600, 2600),
-      weight: 1,
+      weight: preset.grid.weight,
     });
   }
   // boundary samples: shoreline cells with tangent from the water gradient
@@ -331,7 +357,40 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
     spawnSeeds: true,
     eigenDirs: [0, 1],
   });
+  // Junction snap: pull each local street's dangling ends onto the nearest
+  // arterial so small streets actually meet the main roads (T-intersections)
+  // instead of stopping just short of them.
+  const SNAP_DIST = 150;
+  const projectToArterials = (p: Vec2): Vec2 | null => {
+    let best = SNAP_DIST * SNAP_DIST;
+    let bestP: Vec2 | null = null;
+    for (const line of arterials) {
+      for (let i = 0; i + 1 < line.length; i++) {
+        const a = line[i] as Vec2;
+        const b = line[i + 1] as Vec2;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const L2 = dx * dx + dy * dy || 1;
+        let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2;
+        t = Math.max(0, Math.min(1, t));
+        const qx = a.x + dx * t;
+        const qy = a.y + dy * t;
+        const d2 = (qx - p.x) * (qx - p.x) + (qy - p.y) * (qy - p.y);
+        if (d2 < best) {
+          best = d2;
+          bestP = { x: qx, y: qy };
+        }
+      }
+    }
+    return bestP;
+  };
   for (const line of locals) {
+    if (line.length >= 2) {
+      const head = projectToArterials(line[0] as Vec2);
+      if (head && Math.hypot(head.x - (line[0] as Vec2).x, head.y - (line[0] as Vec2).y) > 12 && !isWaterAt(head)) line.unshift(head);
+      const tail = projectToArterials(line[line.length - 1] as Vec2);
+      if (tail && Math.hypot(tail.x - (line[line.length - 1] as Vec2).x, tail.y - (line[line.length - 1] as Vec2).y) > 12 && !isWaterAt(tail)) line.push(tail);
+    }
     roads.push({ id: roadId++, cls: 'local', polyline: makePolyline(decimate(line)) });
   }
 
@@ -402,6 +461,7 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
       if (pop + jobs < 50) continue;
       districts.push({
         id: districtId++,
+        name: '',
         centroid: wSum > 0 ? vec(wx / wSum, wy / wSum) : cellCenter(fields, cellIndices[Math.floor(cellIndices.length / 2)] as number),
         cellIndices,
         population: pop,
@@ -409,6 +469,13 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
         landValue: landCells > 0 ? lvSum / landCells : 0,
       });
     }
+  }
+
+  // ── Name the neighborhoods (unique, seed-stable) ──
+  const nameRng = rng.fork(0x0d15);
+  const names = uniqueNames(nameRng, districts.length, districtName);
+  for (let i = 0; i < districts.length; i++) {
+    (districts[i] as District).name = names[i] as string;
   }
 
   return { fields, roads, districts, cbd };

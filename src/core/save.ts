@@ -11,11 +11,12 @@ import type { GameState, RoadEdge, TrackSegment } from './types';
 export const SAVE_VERSION = 1;
 
 export function serialize(state: GameState): string {
+  const { traffic: _traffic, ...persist } = state; // transient overlay, recomputed on load
   return JSON.stringify({
     version: SAVE_VERSION,
     bankruptDays: getBankruptDays(),
     state: {
-      ...state,
+      ...persist,
       fields: fieldsToJSON(state.fields),
       // polylines: store points only; cumulative lengths rebuilt on load
       roads: state.roads.map((r) => ({ id: r.id, cls: r.cls, points: r.polyline.points })),

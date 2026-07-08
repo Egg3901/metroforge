@@ -4,7 +4,7 @@
  * render snapshots + UI state to the main thread. The renderer never touches
  * the sim directly.
  */
-import { TICKS_PER_DAY, WORLD_SIZE } from '@core/constants';
+import { TICKS_PER_DAY } from '@core/constants';
 import { applyCommand, trackCost } from '@core/commands';
 import { pointAlong } from '@core/geometry';
 import { newGame } from '@core/newGame';
@@ -13,7 +13,6 @@ import { simTick } from '@core/sim';
 import { getRoutePath } from '@core/transit/routePath';
 import type { GameState } from '@core/types';
 import { AgentPool } from './agents';
-import { CarPool } from './cars';
 import type { FromSim, ToSim, UiState } from './protocol';
 
 let state: GameState | null = null;
@@ -21,7 +20,6 @@ let speed = 1; // game-seconds per real second (1x = 1); UI offers 1/10/30/120
 let fieldsVersion = 1;
 let bankrupt = false;
 const agents = new AgentPool();
-const cars = new CarPool();
 let lastFlowsRef: unknown = null;
 
 const post = (msg: FromSim, transfer?: Transferable[]): void => {
@@ -37,7 +35,7 @@ function sendStatic(s: GameState): void {
       cellSize: s.fields.cellSize,
       originX: s.fields.originX,
       originY: s.fields.originY,
-      worldSize: WORLD_SIZE,
+      worldSize: s.fields.w * s.fields.cellSize,
       roads: s.roads.map((r) => ({
         cls: r.cls,
         points: r.polyline.points.flatMap((p) => [p.x, p.y]),
@@ -114,6 +112,27 @@ function buildUi(s: GameState): UiState {
   };
 }
 
+function sendTraffic(s: GameState): void {
+  const t = s.traffic;
+  if (!t) return;
+  const values = Float32Array.from(t.values);
+  post(
+    {
+      type: 'traffic',
+      payload: {
+        w: t.w,
+        h: t.h,
+        cellSize: t.cellSize,
+        originX: t.originX,
+        originY: t.originY,
+        values,
+        hotspots: t.hotspots.map((h) => ({ x: h.x, y: h.y, severity: h.severity })),
+      },
+    },
+    [values.buffer],
+  );
+}
+
 function sendFrame(s: GameState): void {
   const routeColorOf: Record<number, string> = {};
   const buf = new Float32Array(s.vehicles.length * 6);
@@ -137,7 +156,6 @@ function sendFrame(s: GameState): void {
     n++;
   }
   const agentBuf = agents.buffer.slice(0, agents.count * 3);
-  const carBuf = cars.buffer.slice(0, cars.count * 3);
   post(
     {
       type: 'frame',
@@ -147,12 +165,10 @@ function sendFrame(s: GameState): void {
         vehicleCount: n,
         agents: agentBuf,
         agentCount: agents.count,
-        cars: carBuf,
-        carCount: cars.count,
         routeColorOf,
       },
     },
-    [buf.buffer, agentBuf.buffer, carBuf.buffer],
+    [buf.buffer, agentBuf.buffer],
   );
 }
 
@@ -181,11 +197,9 @@ setInterval(() => {
   if (state.flows !== lastFlowsRef) {
     lastFlowsRef = state.flows;
     agents.resample(state);
-    cars.resample(state);
+    sendTraffic(state); // congestion recomputed with the flows
   }
   agents.update(speed / 20);
-  // ambient traffic keeps flowing at a watchable pace regardless of sim speed
-  cars.update((speed === 0 ? 0.7 : Math.min(speed, 6)) / 20);
   sendFrame(state);
   if (--uiCountdown <= 0) {
     uiCountdown = 10; // UI state at 2 Hz
@@ -197,10 +211,9 @@ self.onmessage = (e: MessageEvent<ToSim>) => {
   const msg = e.data;
   switch (msg.type) {
     case 'init':
-      state = newGame(msg.seed, msg.difficulty);
+      state = newGame(msg.seed, msg.difficulty, { size: msg.size, presetKey: msg.presetKey });
       bankrupt = false;
       fieldsVersion++;
-      cars.resample(state);
       sendStatic(state);
       post({ type: 'ui', ui: buildUi(state) });
       break;
@@ -209,7 +222,6 @@ self.onmessage = (e: MessageEvent<ToSim>) => {
         state = deserialize(msg.json);
         bankrupt = false;
         fieldsVersion++;
-        cars.resample(state);
         sendStatic(state);
         post({ type: 'ui', ui: buildUi(state) });
       } catch (err) {

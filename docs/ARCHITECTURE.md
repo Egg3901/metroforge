@@ -37,13 +37,16 @@ Enforced by ESLint `no-restricted-imports` on `src/core/**`. If a change in `cor
 
 ### World
 - Continuous 2D, units are **meters**, city ~12×12 km centered on origin.
-- **Field grid**: 96×96 cells (~125 m/cell) holding scalar fields per cell: `population`, `jobs`, `landValue`, `terrainHeight`, `water`, `nimby`. Fields are sampled bilinearly when point values are needed. Fields are data, not geometry.
-- **Road network**: generated polyline graph (arterial → collector → local) used for city rendering, station snapping, and bus alignment.
+- **Field grid**: N×N cells at a fixed ~125 m/cell, holding scalar fields per cell: `population`, `jobs`, `landValue`, `terrainHeight`, `water`, `parks`, `nimby`. Fields are sampled bilinearly when point values are needed. Fields are data, not geometry.
+- **Map size**: selectable Small / Medium / Large = 8 / 12 / 18 km edge → 64² / 96² / 144² cells (`core/city/presets.ts` `MAP_SIZE_METERS`; cell size is constant, so a bigger map is more city, not coarser). `createFieldGrid(worldSize)` derives the grid; `generateCity` reads `worldSize` off the fields.
+- **City presets**: styled-procedural presets (NYC, Chicago, LA, Boston, Atlanta, Cleveland, Random) tune the generator — grid rigidity/bearing/noise, downtown radial weight, coast/river/landlocked water, and sprawl. **Not** GIS data; fully seed-deterministic. (`core/city/presets.ts`, consumed in `core/city/generator.ts`.)
+- **Road network**: generated polyline graph (arterial → collector → local) used for city rendering, station snapping, and bus alignment. A junction-snap pass projects local street ends onto the nearest arterial so small streets form real intersections with main roads.
 
 ### Demand & assignment (the hybrid core)
 - The city is partitioned into **districts** (clusters of field cells, ~150–400 of them). Demand is an origin–destination matrix over districts, regenerated when land use or network changes materially (dirty-flag, not every tick): gravity model `T_ij = k · P_i · A_j · f(cost_ij)`.
 - **Transit assignment**: build a time-expanded-ish graph — walk links (district centroid → stations within walk radius), board/alight links (wait cost = headway/2 + transfer penalty), ride links (in-vehicle time from route geometry + speed + dwell). Multi-source Dijkstra per origin district. Compare generalized transit cost vs car cost → logit mode split per OD pair.
 - Assignment yields per-route, per-segment **flow volumes** → ridership, revenue, crowding, station load. All economics derive from flows.
+- **Road congestion** (`core/transit/traffic.ts`): the car-mode residual of each OD pair is rasterized as a desire line into a grid and divided by a road-capacity field (cached per road network) to produce a 0..1 congestion field plus ranked bottleneck hotspots. Recomputed whenever the assignment reruns. Presentation/analytics only — it never feeds back into the economy — and is transient (stripped from saves, recomputed on load).
 - **Visual agents** (≤ ~3,000): sampled proportionally from active flows, animated along their assigned paths. Pure presentation; despawn/resample freely under camera or budget pressure. Agent positions are NOT part of the save or the determinism contract.
 
 ### Vehicles
@@ -57,18 +60,22 @@ Vehicles are simulated individually (they're few): position = distance along rou
 The sim runs in a Web Worker by default. The message protocol is deliberately the same shape a native core would expose over FFI:
 
 ```
-→ init { seed, difficulty } | loadSave { json } | setSpeed { s } | command { tick?, cmd }
+→ init { seed, difficulty, size?, presetKey? } | loadSave { json } | setSpeed { s } | command { tick?, cmd }
 ← ready { staticCity }                    // geometry that never changes per-tick
+← fields { payload }                       // land-use field textures, re-baked on growth
+← traffic { payload }                      // congestion field + hotspots, on assignment change
 ← frame { tick, renderSnapshot }          // typed-array positions: vehicles, agents
-← stateDelta { budget, stats, dirtyEntities }   // low-frequency UI data
+← ui { ... }                               // low-frequency UI state
 ← saved { json }
 ```
 
-`renderSnapshot` uses transferable `Float32Array`s (id, x, y, heading, occupancy per vehicle/agent) so 60 fps rendering never touches structured clone of the world. Renderer interpolates between the last two snapshots.
+`renderSnapshot` uses transferable `Float32Array`s (id, x, y, heading, occupancy per vehicle/agent) so 60 fps rendering never touches structured clone of the world. The `traffic` payload likewise transfers its congestion `Float32Array`. (Ambient cars were removed in 1.0 — road load is shown via the congestion overlay, not sprites.)
 
 ## Rendering
 
-- PixiJS v8 (WebGL2). Layers bottom→top: terrain/water → land-use tint (field grid rendered once to a texture, re-baked on growth ticks) → roads (static Graphics, re-baked on change) → transit lines (bold polylines, route colors from a colorblind-safe palette) → stations → vehicles → agent dots → construction ghost → selection.
+- PixiJS v8 (WebGL2). Layers bottom→top: terrain/water → land-use tint (field grid rendered once to a texture, re-baked on growth ticks) → local streets + building fabric → roads → transit tracks/lines (bold polylines, route colors) → data overlay + congestion-hotspot markers → stations/labels → vehicles → agent dots → construction ghost.
+- **Map overlays** (single swappable layer): `density`, `traffic` (green→amber→red congestion heat + animated pulse markers on bottleneck hotspots), `value`, `coverage` (station walk-reach), `nimby`. Toggled from the HUD; on small screens a dedicated mobile Layers strip exposes the same set.
+- **Building fabric** is presentation-only, placed along local streets by land use, with per-road keep-out radii and a footprint-occupancy grid so lots never sit on a street or overlap.
 - Static layers are cached (`cacheAsTexture` / render-to-texture); per-frame work is only dynamic sprites + camera transform.
 - Camera: pan (drag / middle mouse), wheel zoom 0.25×–8× toward cursor, inertial, clamped.
 

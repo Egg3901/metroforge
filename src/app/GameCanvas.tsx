@@ -23,6 +23,7 @@ export function GameCanvas(): React.JSX.Element {
       const { client } = useStore.getState();
       client.events.onReady = (city) => renderer.setStaticCity(city);
       client.events.onFields = (payload) => renderer.setFields(payload);
+      client.events.onTraffic = (payload) => renderer.setTraffic(payload);
       client.events.onFrame = (snap) => renderer.setFrame(snap);
       const prevOnUi = client.events.onUi;
       client.events.onUi = (ui) => {

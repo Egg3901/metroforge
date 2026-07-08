@@ -4,7 +4,7 @@ import type { UiState } from '@host/protocol';
 import { SimClient } from '@host/client';
 
 export type Tool = 'select' | 'station' | 'track' | 'route' | 'bulldoze';
-export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby';
+export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic';
 
 export interface Toast {
   id: number;
@@ -35,7 +35,7 @@ interface AppState {
   setMode: (m: TransitMode) => void;
   setSpeed: (s: number) => void;
   setUi: (ui: UiState) => void;
-  start: (seed: number, difficulty: 'easy' | 'normal' | 'hard') => void;
+  start: (seed: number, difficulty: 'easy' | 'normal' | 'hard', opts?: { size?: 'small' | 'medium' | 'large' | undefined; presetKey?: string | undefined }) => void;
   pushToast: (message: string, tone: Toast['tone']) => void;
   dismissToast: (id: number) => void;
   cancelPending: () => void;
@@ -80,8 +80,8 @@ export const useStore = create<AppState>((set, get) => {
       set({ speed });
     },
     setUi: (ui) => set({ ui }),
-    start: (seed, difficulty) => {
-      client.init(seed, difficulty);
+    start: (seed, difficulty, opts) => {
+      client.init(seed, difficulty, opts);
       set({ started: true });
     },
     pushToast: (message, tone) => {

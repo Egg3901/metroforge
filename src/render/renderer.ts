@@ -4,7 +4,7 @@
  * Reads snapshots only — never touches sim state.
  */
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
-import type { FieldsPayload, FrameSnapshot, StaticCity, UiState } from '@host/protocol';
+import type { FieldsPayload, FrameSnapshot, StaticCity, TrafficPayload, UiState } from '@host/protocol';
 import type { TransitMode } from '@core/types';
 
 const MODE_STATION_COLOR: Record<TransitMode, number> = {
@@ -14,7 +14,7 @@ const MODE_STATION_COLOR: Record<TransitMode, number> = {
   rail: 0x8ce38f,
 };
 
-export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby';
+export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic';
 
 export interface GhostState {
   kind: 'none' | 'station' | 'track' | 'route';
@@ -41,10 +41,11 @@ export class GameRenderer {
   private routesG = new Graphics();
   private stationsG = new Graphics();
   private labels = new Container();
-  private carsG = new Graphics();
   private overlaySprite: Sprite | null = null;
   private coverageG = new Graphics();
+  private hotspotsG = new Graphics();
   private overlayMode: OverlayMode = 'none';
+  private traffic: TrafficPayload | null = null;
   private vehiclesG = new Graphics();
   private agentsG = new Graphics();
   private ghostG = new Graphics();
@@ -63,6 +64,7 @@ export class GameRenderer {
   private dragging = false;
   private lastPointer = { x: 0, y: 0 };
   private pointerDownAt = { x: 0, y: 0 };
+  private clock = 0; // ms, drives overlay pulse animation
 
   callbacks: Partial<RendererCallbacks> = {};
 
@@ -76,7 +78,7 @@ export class GameRenderer {
       autoDensity: true,
     });
     host.appendChild(this.app.canvas);
-    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.carsG, this.tracksG, this.routesG, this.coverageG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
+    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.tracksG, this.routesG, this.coverageG, this.hotspotsG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
     this.app.stage.addChild(this.world);
     this.attachInput(this.app.canvas);
     this.app.ticker.add(() => this.tick());
@@ -103,6 +105,11 @@ export class GameRenderer {
     this.bakeGround(payload);
     this.drawBuildings();
     if (this.overlayMode !== 'none') this.bakeOverlay();
+  }
+
+  setTraffic(payload: TrafficPayload): void {
+    this.traffic = payload;
+    if (this.overlayMode === 'traffic') this.bakeOverlay();
   }
 
   setUi(ui: UiState): void {
@@ -160,6 +167,11 @@ export class GameRenderer {
         this.coverageG.circle(st.x, st.y, walkR[st.mode] ?? 500);
         this.coverageG.stroke({ width: 8, color: 0x30c48d, alpha: 0.5 });
       }
+      return;
+    }
+
+    if (this.overlayMode === 'traffic') {
+      this.bakeTraffic();
       return;
     }
 
@@ -226,6 +238,60 @@ export class GameRenderer {
     this.overlaySprite.y = city.originY;
     this.overlaySprite.width = W * city.cellSize;
     this.overlaySprite.height = H * city.cellSize;
+  }
+
+  /** Congestion heatmap: green (free flow) → amber → red (gridlock). */
+  private bakeTraffic(): void {
+    const city = this.city;
+    const t = this.traffic;
+    if (!city || !t) return;
+    const W = t.w;
+    const H = t.h;
+    const PX = 4;
+    const canvas = document.createElement('canvas');
+    canvas.width = W * PX;
+    canvas.height = H * PX;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const img = ctx.createImageData(W * PX, H * PX);
+    const data = img.data;
+    // ramp stops at v = 0, .5, 1
+    const ramp = (v: number): [number, number, number] => {
+      if (v < 0.5) {
+        const k = v / 0.5; // green → amber
+        return [Math.round(80 + k * 175), Math.round(200 - k * 20), Math.round(90 - k * 40)];
+      }
+      const k = (v - 0.5) / 0.5; // amber → red
+      return [Math.round(255), Math.round(180 - k * 130), Math.round(50 - k * 20)];
+    };
+    for (let py = 0; py < H * PX; py++) {
+      for (let px = 0; px < W * PX; px++) {
+        const i = Math.floor(py / PX) * W + Math.floor(px / PX);
+        const v = t.values[i] as number;
+        const o = (py * W * PX + px) * 4;
+        if (v <= 0.02) { data[o + 3] = 0; continue; }
+        const [r, g, b] = ramp(Math.min(1, v));
+        data[o] = r;
+        data[o + 1] = g;
+        data[o + 2] = b;
+        data[o + 3] = Math.round(40 + Math.min(1, v) * 165);
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const tex = Texture.from(canvas);
+    if (this.overlaySprite) {
+      this.overlaySprite.texture.destroy(true);
+      this.overlaySprite.texture = tex;
+      this.overlaySprite.visible = true;
+    } else {
+      this.overlaySprite = new Sprite(tex);
+      const idx = this.world.getChildIndex(this.coverageG);
+      this.world.addChildAt(this.overlaySprite, idx);
+    }
+    this.overlaySprite.x = t.originX;
+    this.overlaySprite.y = t.originY;
+    this.overlaySprite.width = W * t.cellSize;
+    this.overlaySprite.height = H * t.cellSize;
   }
 
   // ── coordinate transforms ──────────────────────────────────────────────────
@@ -548,13 +614,22 @@ export class GameRenderer {
     const towerPalette = [0x686d78, 0x717682, 0x5e636e, 0x7b808c];
     const aptPalette = [0x8a6754, 0x7d5c4c, 0x93705c, 0x84624f];
     const f = this.fieldsPayload;
-    // clearance grid: no lots on top of arterials/collectors
-    const CLEAR = 46;
-    const clearCell = 48;
-    const clearSet = new Set<number>();
-    const ckey = (x: number, y: number): number => Math.floor(x / clearCell) * 73856093 + Math.floor(y / clearCell) * 19349663;
+    // ── Road clearance: keep building footprints off the carriageway. Each road
+    // class carries a keep-out radius (half its drawn width + a footpath margin).
+    // Lots whose centre falls inside any road's keep-out are rejected, so nothing
+    // is ever drawn sitting on a street. ──
+    const CLEAR_CELL = 64;
+    const clearMap = new Map<number, { x: number; y: number; rad: number }[]>();
+    const roadRadius: Record<string, number> = { arterial: 40, collector: 28, local: 12 };
+    const ckey = (x: number, y: number): number => Math.floor(x / CLEAR_CELL) * 73856093 + Math.floor(y / CLEAR_CELL) * 19349663;
+    const addClear = (x: number, y: number, rad: number): void => {
+      const k = ckey(x, y);
+      const arr = clearMap.get(k);
+      if (arr) arr.push({ x, y, rad });
+      else clearMap.set(k, [{ x, y, rad }]);
+    };
     for (const road of city.roads) {
-      if (road.cls === 'local') continue;
+      const rad = roadRadius[road.cls] ?? 14;
       const rp = road.points;
       for (let i = 0; i + 3 < rp.length; i += 2) {
         const x1 = rp[i] as number;
@@ -562,15 +637,45 @@ export class GameRenderer {
         const x2 = rp[i + 2] as number;
         const y2 = rp[i + 3] as number;
         const segLen = Math.hypot(x2 - x1, y2 - y1);
-        for (let d = 0; d <= segLen; d += clearCell / 2) {
+        for (let d = 0; d <= segLen; d += 24) {
           const t = segLen > 0 ? d / segLen : 0;
-          clearSet.add(ckey(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t));
+          addClear(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, rad);
         }
       }
     }
-    const nearMajorRoad = (x: number, y: number): boolean =>
-      clearSet.has(Math.floor(x / clearCell) * 73856093 + Math.floor(y / clearCell) * 19349663);
-    void CLEAR;
+    // reject if the lot centre (with its own half-extent) intrudes on any road
+    const onRoad = (x: number, y: number, half: number): boolean => {
+      const cx0 = Math.floor(x / CLEAR_CELL);
+      const cy0 = Math.floor(y / CLEAR_CELL);
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const arr = clearMap.get((cx0 + ox) * 73856093 + (cy0 + oy) * 19349663);
+          if (!arr) continue;
+          for (const s of arr) {
+            const rr = s.rad + half;
+            if ((s.x - x) * (s.x - x) + (s.y - y) * (s.y - y) < rr * rr) return true;
+          }
+        }
+      }
+      return false;
+    };
+    // ── Footprint occupancy: no two buildings overlap (kills the "heap" look). ──
+    const OCC_CELL = 16;
+    const occupied = new Set<number>();
+    const claim = (x: number, y: number, half: number): boolean => {
+      const r = Math.max(0, Math.ceil(half / OCC_CELL));
+      const cx0 = Math.floor(x / OCC_CELL);
+      const cy0 = Math.floor(y / OCC_CELL);
+      for (let oy = -r; oy <= r; oy++) {
+        for (let ox = -r; ox <= r; ox++) {
+          if (occupied.has((cx0 + ox) * 73856093 + (cy0 + oy) * 19349663)) return false;
+        }
+      }
+      for (let oy = -r; oy <= r; oy++) {
+        for (let ox = -r; ox <= r; ox++) occupied.add((cx0 + ox) * 73856093 + (cy0 + oy) * 19349663);
+      }
+      return true;
+    };
     // sample land use to size buildings: towers where jobs dominate, houses elsewhere
     const landUseAt = (x: number, y: number): { jobs: number; pop: number } => {
       if (!f) return { jobs: 0, pop: 0 };
@@ -638,9 +743,11 @@ export class GameRenderer {
           const setback = 20 + r * 8;
           const cxp = px + nx * side * (setback + h / 2);
           const cyp = py + ny * side * (setback + h / 2);
-          if (nearMajorRoad(cxp, cyp)) continue; // never spill onto big roads
           const hw = w / 2;
           const hh = h / 2;
+          const half = Math.max(hw, hh);
+          if (onRoad(cxp, cyp, half)) continue; // never spill onto a street
+          if (!claim(cxp, cyp, half)) continue; // no overlapping footprints
           const quad = (offX: number, offY: number): number[] => [
             cxp + offX - ux * hw - nx * hh, cyp + offY - uy * hw - ny * hh,
             cxp + offX + ux * hw - nx * hh, cyp + offY + uy * hw - ny * hh,
@@ -743,6 +850,7 @@ export class GameRenderer {
   // ── per-frame ──────────────────────────────────────────────────────────────
 
   private tick(): void {
+    this.clock += this.app.ticker.deltaMS;
     // camera transform
     this.world.scale.set(this.scale);
     this.world.position.set(
@@ -756,6 +864,27 @@ export class GameRenderer {
     this.localRoadsG.alpha = lodT;
     this.buildingsG.visible = lodT > 0;
     this.buildingsG.alpha = lodT * 0.95;
+
+    // congestion bottleneck markers (Cities-Skyline style pulse) on the traffic layer
+    const hg = this.hotspotsG;
+    hg.clear();
+    if (this.overlayMode === 'traffic' && this.traffic) {
+      const phase = (this.clock / 1400) % 1; // 0..1 expanding ring
+      for (const h of this.traffic.hotspots) {
+        const sev = h.severity;
+        const base = 90 + sev * 90;
+        const col = sev > 0.8 ? 0xff3b30 : sev > 0.65 ? 0xff7a1a : 0xffb020;
+        // expanding pulse ring
+        const ringR = base * (0.6 + phase * 1.5);
+        hg.circle(h.x, h.y, ringR);
+        hg.stroke({ width: 10, color: col, alpha: (1 - phase) * 0.7 });
+        // steady core diamond
+        hg.poly([h.x, h.y - base * 0.55, h.x + base * 0.55, h.y, h.x, h.y + base * 0.55, h.x - base * 0.55, h.y]);
+        hg.fill({ color: col, alpha: 0.85 });
+        hg.poly([h.x, h.y - base * 0.55, h.x + base * 0.55, h.y, h.x, h.y + base * 0.55, h.x - base * 0.55, h.y]);
+        hg.stroke({ width: 6, color: 0x1a0d0a, alpha: 0.6 });
+      }
+    }
 
     // vehicles
     const vg = this.vehiclesG;
@@ -783,40 +912,6 @@ export class GameRenderer {
         if (occ > 0.9) {
           vg.circle(x, y, 40);
           vg.stroke({ width: 8, color: 0xf87171, alpha: 0.9 });
-        }
-      }
-
-      // ambient cars on the road network
-      const cg = this.carsG;
-      cg.clear();
-      if (this.scale > 0.05) {
-        for (let i = 0; i < f.carCount; i++) {
-          const x = f.cars[i * 3] as number;
-          const y = f.cars[i * 3 + 1] as number;
-          const heading = f.cars[i * 3 + 2] as number;
-          const cos = Math.cos(heading);
-          const sin = Math.sin(heading);
-          const l = 16;
-          const w2 = 7;
-          const body = (i % 7 === 0) ? 0xd8b96a : (i % 5 === 0) ? 0x9fb4c8 : 0xdcdcd4;
-          cg.poly([
-            x + cos * l - sin * w2, y + sin * l + cos * w2,
-            x + cos * l + sin * w2, y + sin * l - cos * w2,
-            x - cos * l + sin * w2, y - sin * l - cos * w2,
-            x - cos * l - sin * w2, y - sin * l + cos * w2,
-          ]);
-          cg.fill({ color: body, alpha: 0.95 });
-          // cabin: darker inset toward the rear
-          const cl = 6;
-          const cw = 5;
-          const off = -2;
-          cg.poly([
-            x + cos * (off + cl) - sin * cw, y + sin * (off + cl) + cos * cw,
-            x + cos * (off + cl) + sin * cw, y + sin * (off + cl) - cos * cw,
-            x + cos * (off - cl) + sin * cw, y + sin * (off - cl) - cos * cw,
-            x + cos * (off - cl) - sin * cw, y + sin * (off - cl) + cos * cw,
-          ]);
-          cg.fill({ color: 0x33363c, alpha: 0.9 });
         }
       }
 

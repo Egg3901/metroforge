@@ -15,6 +15,7 @@ import { cellCenter } from './fields';
 import { dist } from './geometry';
 import { Rng } from './rng';
 import { runAssignment } from './transit/assignment';
+import { computeTraffic } from './transit/traffic';
 import { getRoutePath } from './transit/routePath';
 import type { GameState, Station } from './types';
 
@@ -152,6 +153,9 @@ export function refreshAssignment(state: GameState): void {
     }
   }
   state.stats.coverage = totalPop > 0 ? covered / totalPop : 0;
+
+  // congestion overlay: where car demand chokes the road network
+  state.traffic = computeTraffic(state);
 }
 
 function runDailyEconomy(state: GameState, _day: number, events: TickEvents): void {

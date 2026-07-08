@@ -3,14 +3,18 @@ import { clamp } from './geometry';
 import type { Vec2 } from './geometry';
 import type { FieldGrid } from './types';
 
-export function createFieldGrid(): FieldGrid {
-  const n = FIELD_W * FIELD_H;
+export function createFieldGrid(worldSize: number = WORLD_SIZE): FieldGrid {
+  // fixed cell size → bigger worlds simply have more cells
+  const dim = Math.max(1, Math.round(worldSize / FIELD_CELL));
+  const w = worldSize === WORLD_SIZE ? FIELD_W : dim;
+  const h = worldSize === WORLD_SIZE ? FIELD_H : dim;
+  const n = w * h;
   return {
-    w: FIELD_W,
-    h: FIELD_H,
+    w,
+    h,
     cellSize: FIELD_CELL,
-    originX: -WORLD_SIZE / 2,
-    originY: -WORLD_SIZE / 2,
+    originX: -(w * FIELD_CELL) / 2,
+    originY: -(h * FIELD_CELL) / 2,
     terrain: new Float32Array(n),
     water: new Uint8Array(n),
     parks: new Uint8Array(n),

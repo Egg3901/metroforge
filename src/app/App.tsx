@@ -3,6 +3,8 @@ import { GameCanvas } from './GameCanvas';
 import { HUD } from './HUD';
 import { Toolbar } from './Toolbar';
 import { BudgetPanel, RoutePanel, StationPanel } from './Panels';
+import { CITY_PRESETS } from '@core/city/presets';
+import type { MapSize } from '@core/city/presets';
 import { useStore } from './store';
 
 function Toasts(): React.JSX.Element {
@@ -29,7 +31,10 @@ function NewGameScreen(): React.JSX.Element {
   const client = useStore((s) => s.client);
   const [seed, setSeed] = useState(() => String(Math.floor(Math.random() * 1e9)));
   const [difficulty, setDifficulty] = useState<'easy' | 'normal' | 'hard'>('normal');
+  const [presetKey, setPresetKey] = useState('generic');
+  const [size, setSize] = useState<MapSize>('medium');
   const hasSave = localStorage.getItem('metroforge:save:auto') !== null;
+  const selectedPreset = CITY_PRESETS.find((p) => p.key === presetKey) ?? CITY_PRESETS[0]!;
   return (
     <div className="absolute inset-0 z-40 bg-zinc-950 flex items-center justify-center">
       <div className="w-full max-w-sm px-5 space-y-5">
@@ -45,6 +50,39 @@ function NewGameScreen(): React.JSX.Element {
             className="mt-1 w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 font-mono text-sm"
           />
         </label>
+        <div>
+          <div className="text-sm text-zinc-300 mb-1">City</div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {CITY_PRESETS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => setPresetKey(p.key)}
+                className={`py-2 rounded text-sm ${
+                  presetKey === p.key ? 'bg-amber-500 text-zinc-950 font-bold' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-zinc-500 mt-1.5 min-h-[2rem]">{selectedPreset.blurb}</p>
+        </div>
+        <div>
+          <div className="text-sm text-zinc-300 mb-1">Map size</div>
+          <div className="flex gap-2">
+            {(['small', 'medium', 'large'] as const).map((sz) => (
+              <button
+                key={sz}
+                onClick={() => setSize(sz)}
+                className={`flex-1 py-2 rounded text-sm capitalize ${
+                  size === sz ? 'bg-amber-500 text-zinc-950 font-bold' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                }`}
+              >
+                {sz}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="flex gap-2">
           {(['easy', 'normal', 'hard'] as const).map((d) => (
             <button
@@ -65,7 +103,7 @@ function NewGameScreen(): React.JSX.Element {
               n = 0;
               for (const ch of seed) n = (n * 31 + ch.charCodeAt(0)) >>> 0;
             }
-            start(n >>> 0, difficulty);
+            start(n >>> 0, difficulty, { size, presetKey });
           }}
           className="w-full py-3 rounded bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold"
         >

@@ -36,6 +36,7 @@ export interface RoadEdge {
 /** Demand aggregation unit: a cluster of field cells. */
 export interface District {
   id: number;
+  name: string;
   centroid: Vec2;
   cellIndices: number[];
   population: number;
@@ -160,6 +161,8 @@ export interface GameState {
   routes: RouteDef[];
   vehicles: VehicleState[];
   flows: FlowResult[];
+  /** transient: road congestion + bottlenecks, recomputed each assignment (not saved) */
+  traffic?: import('./transit/traffic').TrafficField;
   budget: Budget;
   stats: CityStats;
   /** monotonic entity id counter */

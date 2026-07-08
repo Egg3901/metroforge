@@ -81,29 +81,37 @@ export interface FieldsPayload {
 
 /** vehicles: stride 6 = [id, x, y, heading, occupancy, routeColorIndex] */
 /** agents: stride 3 = [x, y, phase(0 walk,1 ride,2 wait)] */
-/** cars: stride 3 = [x, y, heading] — ambient road traffic */
 export interface FrameSnapshot {
   tick: number;
   vehicles: Float32Array;
   vehicleCount: number;
   agents: Float32Array;
   agentCount: number;
-  cars: Float32Array;
-  carCount: number;
   routeColorOf: Record<number, string>;
 }
 
 export type ToSim =
-  | { type: 'init'; seed: number; difficulty: Difficulty }
+  | { type: 'init'; seed: number; difficulty: Difficulty; size?: 'small' | 'medium' | 'large' | undefined; presetKey?: string | undefined }
   | { type: 'loadSave'; json: string }
   | { type: 'requestSave' }
   | { type: 'setSpeed'; speed: number }
   | { type: 'command'; requestId: number; cmd: Command }
   | { type: 'queryTrackCost'; requestId: number; mode: TransitMode; grade: 'surface' | 'elevated' | 'tunnel'; points: { x: number; y: number }[] };
 
+export interface TrafficPayload {
+  w: number;
+  h: number;
+  cellSize: number;
+  originX: number;
+  originY: number;
+  values: Float32Array; // per-cell congestion 0..1
+  hotspots: { x: number; y: number; severity: number }[];
+}
+
 export type FromSim =
   | { type: 'ready'; staticCity: StaticCity }
   | { type: 'fields'; payload: FieldsPayload }
+  | { type: 'traffic'; payload: TrafficPayload }
   | { type: 'frame'; snapshot: FrameSnapshot }
   | { type: 'ui'; ui: UiState }
   | { type: 'commandResult'; requestId: number; result: CommandResult }

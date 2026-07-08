@@ -3,11 +3,12 @@
  * event subscriptions for the renderer and React store.
  */
 import type { Command, CommandResult, Difficulty, TransitMode } from '@core/types';
-import type { FieldsPayload, FrameSnapshot, FromSim, StaticCity, ToSim, UiState } from './protocol';
+import type { FieldsPayload, FrameSnapshot, FromSim, StaticCity, ToSim, TrafficPayload, UiState } from './protocol';
 
 export interface SimEvents {
   onReady: (city: StaticCity) => void;
   onFields: (payload: FieldsPayload) => void;
+  onTraffic: (payload: TrafficPayload) => void;
   onFrame: (snapshot: FrameSnapshot) => void;
   onUi: (ui: UiState) => void;
   onToast: (message: string, tone: 'info' | 'warn' | 'good') => void;
@@ -30,6 +31,9 @@ export class SimClient {
           break;
         case 'fields':
           this.events.onFields?.(msg.payload);
+          break;
+        case 'traffic':
+          this.events.onTraffic?.(msg.payload);
           break;
         case 'frame':
           this.events.onFrame?.(msg.snapshot);
@@ -59,8 +63,8 @@ export class SimClient {
     this.worker.postMessage(msg);
   }
 
-  init(seed: number, difficulty: Difficulty): void {
-    this.send({ type: 'init', seed, difficulty });
+  init(seed: number, difficulty: Difficulty, opts?: { size?: 'small' | 'medium' | 'large' | undefined; presetKey?: string | undefined }): void {
+    this.send({ type: 'init', seed, difficulty, size: opts?.size, presetKey: opts?.presetKey });
   }
 
   loadSave(json: string): void {
