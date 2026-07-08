@@ -1,24 +1,32 @@
 /**
- * Visual passenger agents — presentation only. Sampled from flow results;
- * never feed back into economics and are not part of the save/determinism
- * contract, so plain Math-free jitter comes from a throwaway Rng.
+ * Visual passenger agents — presentation only (never feed economics or the
+ * save/determinism contract). Each agent follows a real journey: WALK legs are
+ * routed along the street network to/from stations, RIDE legs follow the actual
+ * track between stations. No more floating through buildings.
+ *
+ * Paths are built once per OD flow and shared by all agents on that flow (with a
+ * per-agent offset), so the A* routing cost is bounded regardless of pool size.
  */
 import { WALK_SPEED } from '@core/constants';
-import { dist, lerpVec } from '@core/geometry';
+import { dist } from '@core/geometry';
 import type { Vec2 } from '@core/geometry';
 import { Rng } from '@core/rng';
-import type { GameState } from '@core/types';
+import { findRoadPath } from '@core/transit/roadGraph';
+import type { FlowResult, GameState } from '@core/types';
 
-const MAX_AGENTS = 1800;
-const RIDE_SPEED = 14; // m/s visual
+const MAX_AGENTS = 1600;
+const RIDE_SPEED = 16; // m/s visual
+const PATH_BUDGET = 160; // max A* route builds per resample
 
+interface FlowPath {
+  pts: Vec2[];
+  cum: number[]; // arc length to each point
+  segPhase: number[]; // phase per segment (0 walk, 1 ride)
+  total: number;
+}
 interface Agent {
-  waypoints: Vec2[];
-  /** phase per leg: 0 walk, 1 ride */
-  legPhase: number[];
-  leg: number;
-  t: number; // 0..1 along current leg
-  legLength: number;
+  path: FlowPath;
+  d: number; // distance along the path
 }
 
 export class AgentPool {
@@ -27,7 +35,6 @@ export class AgentPool {
   buffer = new Float32Array(MAX_AGENTS * 3);
   count = 0;
 
-  /** Re-sample the pool from current flows (call after assignment refresh). */
   resample(state: GameState): void {
     this.agents.length = 0;
     const flows = state.flows;
@@ -35,62 +42,87 @@ export class AgentPool {
     let totalTrips = 0;
     for (const f of flows) totalTrips += f.transitTrips;
     if (totalTrips <= 0) return;
+
     const stationById = new Map(state.stations.map((s) => [s.id, s]));
     const districtById = new Map(state.districts.map((d) => [d.id, d]));
+    // track geometry by station pair (both directions) for ride legs
+    const trackByPair = new Map<string, Vec2[]>();
+    for (const t of state.tracks) {
+      const p = t.polyline.points;
+      trackByPair.set(`${t.fromStationId}:${t.toStationId}`, p);
+      trackByPair.set(`${t.toStationId}:${t.fromStationId}`, [...p].reverse());
+    }
 
-    const target = Math.min(MAX_AGENTS, Math.round(totalTrips / 30));
-    for (let i = 0; i < target; i++) {
-      const f = flows[this.rng.weighted(flows.map((x) => x.transitTrips))];
-      if (!f) continue;
+    const cache = new Map<FlowResult, FlowPath | null>();
+    let budget = PATH_BUDGET;
+    const buildPath = (f: FlowResult): FlowPath | null => {
+      if (cache.has(f)) return cache.get(f) ?? null;
       const origin = districtById.get(f.originDistrict);
       const destD = districtById.get(f.destDistrict);
-      if (!origin || !destD) continue;
-      const jitter = (): Vec2 => ({ x: this.rng.range(-300, 300), y: this.rng.range(-300, 300) });
-      const o = { x: origin.centroid.x + jitter().x, y: origin.centroid.y + jitter().y };
-      const dEnd = { x: destD.centroid.x + jitter().x, y: destD.centroid.y + jitter().y };
-      const waypoints: Vec2[] = [o];
-      const legPhase: number[] = [];
-      for (const sid of f.stationIds) {
-        const s = stationById.get(sid);
-        if (s) {
-          waypoints.push(s.pos);
-          legPhase.push(waypoints.length === 2 ? 0 : 1);
+      const stops = f.stationIds.map((id) => stationById.get(id)).filter((s): s is NonNullable<typeof s> => !!s);
+      if (!origin || !destD || stops.length === 0) { cache.set(f, null); return null; }
+
+      // assemble legs: walk o→s0, ride s0→s1→…, walk sN→dest
+      const legs: { poly: Vec2[]; phase: number }[] = [];
+      const walk = (a: Vec2, b: Vec2): Vec2[] => (budget-- > 0 ? findRoadPath(state.roads, a, b) : null) ?? [a, b];
+      legs.push({ poly: walk(origin.centroid, stops[0]!.pos), phase: 0 });
+      for (let i = 0; i + 1 < stops.length; i++) {
+        const seg = trackByPair.get(`${stops[i]!.id}:${stops[i + 1]!.id}`);
+        legs.push({ poly: seg && seg.length >= 2 ? seg : [stops[i]!.pos, stops[i + 1]!.pos], phase: 1 });
+      }
+      legs.push({ poly: walk(stops[stops.length - 1]!.pos, destD.centroid), phase: 0 });
+
+      const pts: Vec2[] = [];
+      const segPhase: number[] = [];
+      for (const leg of legs) {
+        for (let k = 0; k < leg.poly.length; k++) {
+          const pt = leg.poly[k] as Vec2;
+          if (pts.length === 0) { pts.push(pt); continue; }
+          if (dist(pts[pts.length - 1] as Vec2, pt) < 1) continue; // dedupe join points
+          pts.push(pt);
+          segPhase.push(leg.phase);
         }
       }
-      waypoints.push(dEnd);
-      legPhase.push(0);
-      if (waypoints.length < 2) continue;
-      const startLeg = this.rng.int(0, waypoints.length - 2);
-      const a: Agent = {
-        waypoints,
-        legPhase,
-        leg: startLeg,
-        t: this.rng.next(),
-        legLength: dist(waypoints[startLeg] as Vec2, waypoints[startLeg + 1] as Vec2),
-      };
-      this.agents.push(a);
+      if (pts.length < 2) { cache.set(f, null); return null; }
+      const cum = [0];
+      let total = 0;
+      for (let i = 1; i < pts.length; i++) { total += dist(pts[i - 1] as Vec2, pts[i] as Vec2); cum.push(total); }
+      const fp: FlowPath = { pts, cum, segPhase, total };
+      cache.set(f, fp);
+      return fp;
+    };
+
+    const weights = flows.map((x) => x.transitTrips);
+    const target = Math.min(MAX_AGENTS, Math.round(totalTrips / 35));
+    for (let i = 0; i < target; i++) {
+      const f = flows[this.rng.weighted(weights)];
+      if (!f) continue;
+      const path = buildPath(f);
+      if (!path) continue;
+      this.agents.push({ path, d: this.rng.next() * path.total });
     }
   }
 
   update(dtGameSeconds: number): void {
     let idx = 0;
     for (const a of this.agents) {
-      const phase = a.legPhase[a.leg] ?? 0;
-      const speed = phase === 1 ? RIDE_SPEED : WALK_SPEED * 2.2; // visual walk slightly brisk
-      if (a.legLength > 0) a.t += (speed * dtGameSeconds) / a.legLength;
-      if (a.t >= 1) {
-        a.leg += 1;
-        a.t = 0;
-        if (a.leg >= a.waypoints.length - 1) {
-          // loop the agent: restart the journey (pool stays full without churn)
-          a.leg = 0;
-        }
-        a.legLength = dist(a.waypoints[a.leg] as Vec2, a.waypoints[a.leg + 1] as Vec2);
-      }
-      const p = lerpVec(a.waypoints[a.leg] as Vec2, a.waypoints[a.leg + 1] as Vec2, Math.min(a.t, 1));
-      this.buffer[idx * 3] = p.x;
-      this.buffer[idx * 3 + 1] = p.y;
-      this.buffer[idx * 3 + 2] = phase;
+      const fp = a.path;
+      // segment at current distance
+      let seg = 1;
+      while (seg < fp.cum.length - 1 && (fp.cum[seg] as number) < a.d) seg++;
+      const phase = fp.segPhase[seg - 1] ?? 0;
+      const speed = phase === 1 ? RIDE_SPEED : WALK_SPEED * 2.4;
+      a.d += speed * dtGameSeconds;
+      if (a.d >= fp.total) { a.d -= fp.total; seg = 1; }
+      while (seg < fp.cum.length - 1 && (fp.cum[seg] as number) < a.d) seg++;
+      const d0 = fp.cum[seg - 1] as number;
+      const segLen = (fp.cum[seg] as number) - d0 || 1;
+      const t = Math.max(0, Math.min(1, (a.d - d0) / segLen));
+      const p0 = fp.pts[seg - 1] as Vec2;
+      const p1 = fp.pts[seg] as Vec2;
+      this.buffer[idx * 3] = p0.x + (p1.x - p0.x) * t;
+      this.buffer[idx * 3 + 1] = p0.y + (p1.y - p0.y) * t;
+      this.buffer[idx * 3 + 2] = fp.segPhase[seg - 1] ?? 0;
       idx++;
     }
     this.count = idx;
