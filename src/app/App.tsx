@@ -151,8 +151,11 @@ function NewGameScreen(): React.JSX.Element {
   );
 }
 
+const NO_EVENTS: { id: string; name: string; daysLeft: number }[] = [];
 function EventsBanner(): React.JSX.Element | null {
-  const events = useStore((s) => s.ui?.activeEvents ?? []);
+  // NOTE: `?? NO_EVENTS` (a stable ref) — never `?? []`, which makes a new array
+  // each render and sends Zustand into an infinite update loop before ui loads.
+  const events = useStore((s) => s.ui?.activeEvents ?? NO_EVENTS);
   if (events.length === 0) return null;
   return (
     <div className="absolute top-14 sm:top-14 left-1/2 -translate-x-1/2 z-10 flex gap-2 pointer-events-none max-w-[90vw] flex-wrap justify-center">
