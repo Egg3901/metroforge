@@ -15,7 +15,14 @@ import { encodePng } from './png';
 
 const WORLD = 12000; // fit each city into a 12km square (matches medium map)
 const HALF = WORLD / 2;
-const MASK_RES = 320; // water/park bitmask resolution over the world square
+const MASK_RES = 640; // water/park bitmask resolution over the world square (~19m/cell)
+
+/** Pack a 0/1 mask to 1 bit per cell, base64. */
+function packMask(bits: Uint8Array): string {
+  const packed = new Uint8Array(Math.ceil(bits.length / 8));
+  for (let i = 0; i < bits.length; i++) if (bits[i]) packed[i >> 3]! |= 1 << (i & 7);
+  return Buffer.from(packed).toString('base64');
+}
 
 interface CityCfg {
   key: string;
@@ -325,8 +332,9 @@ function build(cfg: CityCfg): void {
     label: cfg.label,
     worldSize: WORLD,
     maskRes: MASK_RES,
-    waterMask: Buffer.from(bits).toString('base64'),
-    parkMask: Buffer.from(parkBits).toString('base64'),
+    waterMask: packMask(bits),
+    parkMask: packMask(parkBits),
+    maskPacked: true,
     roads: outRoads,
     labels,
   };

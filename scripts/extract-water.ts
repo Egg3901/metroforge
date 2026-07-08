@@ -14,7 +14,8 @@
 import * as shapefile from 'shapefile';
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 
-const SHP = '.cache/osmdata/simplified-water-polygons-split-3857/simplified_water_polygons';
+// full-resolution water polygons (exact shoreline detail)
+const SHP = '.cache/osmdata/water-polygons-split-3857/water_polygons';
 
 /** city bboxes: [south, west, north, east] — keep in sync with build-cities.ts */
 const CITIES: Record<string, [number, number, number, number]> = {

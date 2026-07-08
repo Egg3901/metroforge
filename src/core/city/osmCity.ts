@@ -14,6 +14,8 @@ export interface OsmCityData {
   waterMask: string;
   /** same grid, 1 = park/green (Central Park, Boston Common, …) */
   parkMask?: string;
+  /** masks are 1-bit-per-cell packed (vs legacy 1-byte-per-cell) */
+  maskPacked?: boolean;
   roads: { cls: string; pts: number[] }[];
   /** real OSM place names for map labels */
   labels?: MapLabel[];
@@ -30,11 +32,18 @@ export interface MapLabel {
   imp: number;
 }
 
-/** Decode a base64 mask to a Uint8Array (1 = set). */
-export function decodeB64Mask(b64: string): Uint8Array {
+/** Decode a base64 mask to a Uint8Array of `n` cells (1 = set). Packed = 1 bit
+ *  per cell (current format); otherwise 1 byte per cell (legacy). */
+export function decodeB64Mask(b64: string, n?: number, packed = true): Uint8Array {
   const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  if (!packed) {
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  const count = n ?? bin.length * 8;
+  const out = new Uint8Array(count);
+  for (let i = 0; i < count; i++) out[i] = (bin.charCodeAt(i >> 3) >> (i & 7)) & 1;
   return out;
 }
 

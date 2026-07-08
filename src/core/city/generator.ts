@@ -92,8 +92,10 @@ export function generateCity(seed: number, difficulty: Difficulty, opts: Generat
   let osmParkHi: Uint8Array | undefined;
   if (osm) {
     // real-city land/water/parks from the baked OSM masks; gentle procedural relief
-    const mask = decodeB64Mask(osm.waterMask);
-    const pmask = osm.parkMask ? decodeB64Mask(osm.parkMask) : null;
+    const n = osm.maskRes * osm.maskRes;
+    const packed = osm.maskPacked === true;
+    const mask = decodeB64Mask(osm.waterMask, n, packed);
+    const pmask = osm.parkMask ? decodeB64Mask(osm.parkMask, n, packed) : null;
     osmWaterHi = mask;
     osmParkHi = pmask ?? undefined;
     for (let cy = 0; cy < fields.h; cy++) {
