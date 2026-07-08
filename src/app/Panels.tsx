@@ -82,9 +82,23 @@ export function StationPanel(): React.JSX.Element | null {
           <span className="px-2 py-0.5 rounded bg-zinc-800 text-xs">{MODES[station.mode].label}</span>
           <span className="px-2 py-0.5 rounded bg-zinc-800 text-xs">Level {station.level}/5</span>
         </div>
-        <div>
-          Daily boardings: <span className="text-zinc-100 font-mono">{Math.round(station.ridership).toLocaleString()}</span>
-        </div>
+        {(() => {
+          const crowd = Math.max(0, Math.min(1, station.ridership / 2600));
+          const label = crowd > 0.8 ? 'Crowded' : crowd > 0.5 ? 'Busy' : crowd > 0.2 ? 'Steady' : 'Quiet';
+          const tone = crowd > 0.8 ? 'text-rose-400' : crowd > 0.5 ? 'text-amber-400' : 'text-emerald-400';
+          return (
+            <div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-zinc-400 text-xs">Daily boardings</span>
+                <span className={`text-xs font-semibold ${tone}`}>{label}</span>
+              </div>
+              <div className="text-zinc-100 font-mono text-lg">{Math.round(station.ridership).toLocaleString()}</div>
+              <div className="h-1.5 mt-1 rounded-full bg-zinc-800 overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${crowd * 100}%`, background: crowd > 0.8 ? '#fb7185' : crowd > 0.5 ? '#fbbf24' : '#34d399' }} />
+              </div>
+            </div>
+          );
+        })()}
         <div>
           <div className="text-xs text-zinc-500 uppercase mb-1">Routes serving</div>
           {routes.length === 0 && <div className="text-zinc-600 text-xs">None — connect it with a track and route</div>}
@@ -106,6 +120,47 @@ export function StationPanel(): React.JSX.Element | null {
         >
           Upgrade ({fmt(upgradeCost)}) — bigger growth halo
         </button>
+      </div>
+    </PanelShell>
+  );
+}
+
+export function RoutesPanel(): React.JSX.Element | null {
+  const ui = useStore((s) => s.ui);
+  const select = useStore((s) => s.select);
+  if (!ui) return null;
+  const routes = ui.routes;
+  const totRiders = routes.reduce((a, r) => a + r.dailyRidership, 0);
+  const totRevenue = routes.reduce((a, r) => a + r.dailyRevenue, 0);
+  const totKm = routes.reduce((a, r) => a + r.lengthMeters / 1000, 0);
+  return (
+    <PanelShell title={`Lines · ${routes.length}`}>
+      <div className="space-y-3">
+        <div className="grid grid-cols-3 gap-2 text-center">
+          {[['Riders/day', Math.round(totRiders).toLocaleString()], ['Fares/day', fmt(totRevenue)], ['Network', `${totKm.toFixed(1)} km`]].map(([l, v]) => (
+            <div key={l} className="bg-zinc-900/60 rounded-lg py-2">
+              <div className="text-[10px] uppercase tracking-wide text-zinc-500">{l}</div>
+              <div className="text-sm font-mono text-zinc-100">{v}</div>
+            </div>
+          ))}
+        </div>
+        {routes.length === 0 && <div className="text-zinc-600 text-xs py-3 text-center">No lines yet. Place stations, lay track, then create a route.</div>}
+        <div className="space-y-1">
+          {routes.map((r) => (
+            <button key={r.id} onClick={() => select('route', r.id)}
+              className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-zinc-800/70 text-left">
+              <span className="w-3 h-3 rounded-full shrink-0" style={{ background: r.color }} />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-zinc-100 truncate">{r.name}</div>
+                <div className="text-[11px] text-zinc-500">{MODES[r.mode].label} · {r.stationIds.length} stops · {(r.lengthMeters / 1000).toFixed(1)} km</div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-xs font-mono text-zinc-200">{Math.round(r.dailyRidership).toLocaleString()}</div>
+                <div className="text-[11px] font-mono text-emerald-400/90">{fmt(r.dailyRevenue)}</div>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     </PanelShell>
   );
@@ -193,9 +248,25 @@ export function BudgetPanel(): React.JSX.Element | null {
     ['Loan interest', -d.interest, false],
   ];
   const net = rows.reduce((a, [, v]) => a + v, 0);
+  const costs = d.operations + d.maintenance;
+  const recovery = costs > 0 ? d.fares / costs : 0;
   return (
-    <PanelShell title="Budget">
+    <PanelShell title="Finances">
       <div className="space-y-3 text-zinc-300">
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="bg-zinc-900/60 rounded-lg py-2">
+            <div className="text-[10px] uppercase tracking-wide text-zinc-500">Cash</div>
+            <div className={`text-sm font-mono ${ui.cash < 0 ? 'text-red-400' : 'text-emerald-300'}`}>{fmt(ui.cash)}</div>
+          </div>
+          <div className="bg-zinc-900/60 rounded-lg py-2">
+            <div className="text-[10px] uppercase tracking-wide text-zinc-500">Net / day</div>
+            <div className={`text-sm font-mono ${net >= 0 ? 'text-emerald-300' : 'text-red-400'}`}>{fmt(net)}</div>
+          </div>
+          <div className="bg-zinc-900/60 rounded-lg py-2">
+            <div className="text-[10px] uppercase tracking-wide text-zinc-500">Farebox</div>
+            <div className={`text-sm font-mono ${recovery >= 1 ? 'text-emerald-300' : 'text-zinc-200'}`}>{Math.round(recovery * 100)}%</div>
+          </div>
+        </div>
         <table className="w-full text-xs">
           <tbody>
             {rows.map(([label, v]) => (

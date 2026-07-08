@@ -117,6 +117,15 @@ export function HUD(): React.JSX.Element | null {
             ))}
           </div>
           <button
+            onClick={() => setPanel('routes')}
+            title="Lines"
+            aria-label="Lines"
+            className="mr-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-300 hover:text-zinc-100 hidden sm:flex items-center gap-1.5"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 6h6a4 4 0 0 1 4 4v6"/></svg>
+            Lines
+          </button>
+          <button
             onClick={() => setPanel('goals')}
             title="Objectives"
             aria-label="Objectives"

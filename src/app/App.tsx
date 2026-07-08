@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { GameCanvas } from './GameCanvas';
 import { HUD } from './HUD';
 import { Toolbar } from './Toolbar';
-import { BudgetPanel, GoalsPanel, RoutePanel, StationPanel } from './Panels';
+import { BudgetPanel, GoalsPanel, RoutePanel, RoutesPanel, StationPanel } from './Panels';
 import { CITY_PRESETS } from '@core/city/presets';
 import type { MapSize } from '@core/city/presets';
+import { OSM_CITY_KEYS } from '@core/city/osmRegistry';
 import { Logo, Wordmark, TAGLINE } from './brand';
 import { SCENARIOS } from './scenarios';
 import { authenticate, fetchLeaderboard, signOut, type LeaderEntry } from './api';
@@ -39,27 +40,36 @@ function Toasts(): React.JSX.Element {
 
 function FreePlay(): React.JSX.Element {
   const start = useStore((s) => s.start);
+  // real cities only — procedural gen is retired from the player experience
+  const cities = CITY_PRESETS.filter((p) => p.real);
   const [seed, setSeed] = useState(() => String(randomSeed()));
   const [difficulty, setDifficulty] = useState<'easy' | 'normal' | 'hard'>('normal');
-  const [presetKey, setPresetKey] = useState('nyc');
+  const [presetKey, setPresetKey] = useState<string>('__random');
   const [size, setSize] = useState<MapSize>('medium');
-  const preset = CITY_PRESETS.find((p) => p.key === presetKey) ?? CITY_PRESETS[0]!;
+  const preset = cities.find((p) => p.key === presetKey);
   const chip = (active: boolean): string =>
     `flex-1 py-2 rounded-lg text-sm capitalize transition-colors ${active ? 'bg-amber-500 text-zinc-950 font-semibold' : 'bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700'}`;
+  const launch = (): void => {
+    const key = presetKey === '__random' ? OSM_CITY_KEYS[Math.floor(Math.random() * OSM_CITY_KEYS.length)]! : presetKey;
+    start(seedFrom(seed), difficulty, { size, presetKey: key });
+  };
   return (
     <div className="space-y-4">
       <div>
         <div className="text-xs uppercase tracking-widest text-zinc-500 mb-1.5">City</div>
         <div className="grid grid-cols-3 gap-1.5">
-          {[...CITY_PRESETS].sort((a, b) => Number(b.real ?? false) - Number(a.real ?? false)).map((p) => (
+          <button onClick={() => setPresetKey('__random')}
+            className={`py-2 rounded-lg text-sm transition-colors ${presetKey === '__random' ? 'bg-amber-500 text-zinc-950 font-semibold' : 'bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700'}`}>
+            Random
+          </button>
+          {cities.map((p) => (
             <button key={p.key} onClick={() => setPresetKey(p.key)}
-              className={`relative py-2 rounded-lg text-sm transition-colors ${presetKey === p.key ? 'bg-amber-500 text-zinc-950 font-semibold' : 'bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700'}`}>
+              className={`py-2 rounded-lg text-sm transition-colors ${presetKey === p.key ? 'bg-amber-500 text-zinc-950 font-semibold' : 'bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700'}`}>
               {p.label}
-              {p.real && <span className={`absolute top-0.5 right-1 text-[8px] font-bold ${presetKey === p.key ? 'text-zinc-900' : 'text-emerald-400'}`}>REAL</span>}
             </button>
           ))}
         </div>
-        <p className="text-xs text-zinc-500 mt-1.5 min-h-[1.5rem]">{preset.blurb}</p>
+        <p className="text-xs text-zinc-500 mt-1.5 min-h-[1.5rem]">{preset ? preset.blurb : 'A random real city each time you play.'}</p>
       </div>
       <div className="flex gap-2">
         {(['small', 'medium', 'large'] as const).map((sz) => (
@@ -77,7 +87,7 @@ function FreePlay(): React.JSX.Element {
           className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 font-mono text-xs text-zinc-300" />
         <button onClick={() => setSeed(String(randomSeed()))} className="px-2 py-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-zinc-100" title="Randomize">⟳</button>
       </label>
-      <button onClick={() => start(seedFrom(seed), difficulty, { size, presetKey })}
+      <button onClick={launch}
         className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold transition-colors">
         Found a Transit Authority
       </button>
@@ -288,6 +298,7 @@ export function App(): React.JSX.Element {
       {started && panel === 'route' && <RoutePanel />}
       {started && panel === 'budget' && <BudgetPanel />}
       {started && panel === 'goals' && <GoalsPanel />}
+      {started && panel === 'routes' && <RoutesPanel />}
       <Toasts />
       {started && won && <WinOverlay />}
       {!started && <NewGameScreen />}

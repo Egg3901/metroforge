@@ -31,7 +31,7 @@ interface AppState {
   selectedStationId: number | null;
   selectedRouteId: number | null;
   toasts: Toast[];
-  panel: 'none' | 'budget' | 'station' | 'route' | 'goals';
+  panel: 'none' | 'budget' | 'station' | 'route' | 'goals' | 'routes';
   overlay: OverlayMode;
   /** ids of completed progression goals */
   completedGoals: string[];

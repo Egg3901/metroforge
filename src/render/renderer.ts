@@ -133,12 +133,13 @@ export class GameRenderer {
     if (structureChanged) {
       this.drawTracks();
       this.drawRoutes();
-      this.drawStations();
       if (this.overlayMode === 'coverage') {
         this.overlayMode = 'none'; // force rebake with fresh stations
         this.setOverlay('coverage');
       }
     }
+    // stations redraw every update so crowding color tracks live ridership
+    if (ui.stations.length > 0 || structureChanged) this.drawStations();
   }
 
   setFrame(snapshot: FrameSnapshot): void {
@@ -933,12 +934,19 @@ export class GameRenderer {
     g.clear();
     this.labels.removeChildren().forEach((c) => c.destroy());
     if (!ui) return;
+    const lerpHex = (a: number, b: number, t: number): number => {
+      const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
+      const br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
+      return (Math.round(ar + (br - ar) * t) << 16) | (Math.round(ag + (bg - ag) * t) << 8) | Math.round(ab + (bb - ab) * t);
+    };
     for (const s of ui.stations) {
-      const color = MODE_STATION_COLOR[s.mode];
+      // busy stations glow and shift red — a lot of passengers boarding here
+      const crowd = Math.max(0, Math.min(1, s.ridership / 2600));
+      const color = lerpHex(MODE_STATION_COLOR[s.mode], 0xff453a, crowd * 0.85);
       const size = 30 + s.level * 6;
-      // soft glow halo so interchanges read as bright nodes on the dark map
-      g.circle(s.x, s.y, size * 1.7);
-      g.fill({ color, alpha: 0.14 });
+      // soft glow halo, brighter the busier the station
+      g.circle(s.x, s.y, size * (1.7 + crowd * 0.8));
+      g.fill({ color, alpha: 0.14 + crowd * 0.24 });
       // distinct shapes per mode
       if (s.mode === 'bus') g.circle(s.x, s.y, size);
       else if (s.mode === 'tram') g.poly([s.x, s.y - size, s.x + size, s.y, s.x, s.y + size, s.x - size, s.y]);

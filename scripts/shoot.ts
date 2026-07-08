@@ -66,6 +66,10 @@ async function main(): Promise<void> {
     await page.getByRole('button', { name: 'Objectives' }).click().catch(() => {});
     await page.waitForTimeout(800);
   }
+  if (process.argv.includes('lines')) {
+    await page.getByRole('button', { name: 'Lines' }).click().catch(() => {});
+    await page.waitForTimeout(800);
+  }
 
   await page.screenshot({ path: `grader/shot-${preset}-overview.png` });
 
