@@ -27,6 +27,8 @@ export const PALETTE = {
   waterShallow: [26, 41, 54] as RGB,
   /** a thin luminous line right at the coast */
   shoreLine: [54, 74, 92] as RGB,
+  /** warm sand just landward of the shoreline */
+  sand: [74, 66, 49] as RGB,
   /** parks / green space */
   park: [30, 48, 37] as RGB,
 

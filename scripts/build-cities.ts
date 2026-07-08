@@ -113,15 +113,22 @@ function build(cfg: CityCfg): void {
   ));
   const coast = waysOf(fetchRaw(`[out:json][timeout:90];way["natural"="coastline"](${bb});out geom;`, `${cfg.key}-coast`));
   // water: ways AND relations (big rivers like the Charles are multipolygons)
-  const waterRings = ringsOf(fetchRaw(
+  const waterEls = fetchRaw(
     `[out:json][timeout:90];(way["natural"="water"](${bb});way["waterway"="riverbank"](${bb});relation["natural"="water"](${bb});relation["waterway"="riverbank"](${bb}););out geom;`,
     `${cfg.key}-water2`,
-  ));
+  );
+  const waterRings = ringsOf(waterEls);
+  // named river/bay centerlines for labels (Hudson, East River, Charles, ...)
+  const waterwayEls = fetchRaw(
+    `[out:json][timeout:90];(way["waterway"="river"]["name"](${bb});relation["natural"="water"]["name"](${bb}););out geom;`,
+    `${cfg.key}-waterways`,
+  );
   // parks/greens: ways AND relations (Boston Common, Central Park, ...)
-  const parkRings = ringsOf(fetchRaw(
+  const parkEls = fetchRaw(
     `[out:json][timeout:90];(way["leisure"~"^(park|garden)$"](${bb});way["natural"="wood"](${bb});relation["leisure"="park"](${bb}););out geom;`,
     `${cfg.key}-parks`,
-  ));
+  );
+  const parkRings = ringsOf(parkEls);
 
   // equirectangular projection around bbox center, north-up, fit to world square
   const lat0 = (s + n) / 2;
@@ -152,6 +159,47 @@ function build(cfg: CityCfg): void {
   }
   const waterPolys: number[][] = waterRings.map((ring) => ring.map(P).flat());
   const parkPolys: number[][] = parkRings.map((ring) => ring.map(P).flat());
+
+  // ── labels: real OSM names for roads / water / parks ──
+  type Label = { kind: 'road' | 'water' | 'park'; name: string; x: number; y: number; angle?: number; imp: number };
+  const labels: Label[] = [];
+  const geomOf = (e: OsmEl): LL[] | null => e.geometry ?? e.members?.find((m) => m.geometry)?.geometry ?? null;
+  const addAreaLabels = (els: OsmEl[], kind: 'water' | 'park'): void => {
+    const seen = new Set<string>();
+    for (const e of els) {
+      const name = e.tags?.name;
+      const geom = geomOf(e);
+      if (!name || !geom || geom.length < 3 || seen.has(name)) continue;
+      seen.add(name);
+      let sx = 0, sy = 0, minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+      for (const ll of geom) { const [x, y] = P(ll); sx += x; sy += y; minx = Math.min(minx, x); miny = Math.min(miny, y); maxx = Math.max(maxx, x); maxy = Math.max(maxy, y); }
+      const area = (maxx - minx) * (maxy - miny);
+      if (area < 40000) continue; // skip tiny features
+      labels.push({ kind, name, x: Math.round(sx / geom.length), y: Math.round(sy / geom.length), imp: 1 + Math.min(4, area / 1_500_000) });
+    }
+  };
+  addAreaLabels([...waterEls, ...waterwayEls], 'water');
+  addAreaLabels(parkEls, 'park');
+  // roads: one label per named major road, at its longest member's midpoint
+  const bestByName = new Map<string, typeof roads[number]>();
+  for (const way of roads) {
+    const name = way.tags.name;
+    const cls = CLASS[way.tags.highway ?? ''];
+    if (!name || !cls || cls === 'local') continue;
+    const prev = bestByName.get(name);
+    if (!prev || way.geometry.length > prev.geometry.length) bestByName.set(name, way);
+  }
+  for (const [name, way] of bestByName) {
+    const g0 = way.geometry;
+    const m = Math.floor(g0.length / 2);
+    const [x, y] = P(g0[m]!);
+    const [ax, ay] = P(g0[Math.max(0, m - 1)]!);
+    const [bx, by] = P(g0[Math.min(g0.length - 1, m + 1)]!);
+    let angle = Math.atan2(by - ay, bx - ax);
+    if (angle > Math.PI / 2) angle -= Math.PI;
+    if (angle < -Math.PI / 2) angle += Math.PI;
+    labels.push({ kind: 'road', name, x: Math.round(x), y: Math.round(y), angle: Math.round(angle * 1000) / 1000, imp: CLASS[way.tags.highway ?? ''] === 'arterial' ? 2.5 : 1.6 });
+  }
 
   // orient the coastline: OSM keeps land on the left; find the sign that puts
   // the known land point on the land side.
@@ -252,6 +300,7 @@ function build(cfg: CityCfg): void {
     waterMask: Buffer.from(bits).toString('base64'),
     parkMask: Buffer.from(parkBits).toString('base64'),
     roads: outRoads,
+    labels,
   };
   mkdirSync('src/data/cities', { recursive: true });
   const path = `src/data/cities/${cfg.key}.json`;

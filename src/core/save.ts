@@ -12,7 +12,7 @@ export const SAVE_VERSION = 1;
 
 export function serialize(state: GameState): string {
   // transient fields (recomputed / reloaded), never serialized
-  const { traffic: _t, osmWaterMask: _w, osmParkMask: _p, osmMaskRes: _r, ...persist } = state;
+  const { traffic: _t, osmWaterMask: _w, osmParkMask: _p, osmMaskRes: _r, osmLabels: _l, ...persist } = state;
   return JSON.stringify({
     version: SAVE_VERSION,
     bankruptDays: getBankruptDays(),

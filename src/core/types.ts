@@ -167,6 +167,7 @@ export interface GameState {
   osmWaterMask?: Uint8Array | undefined;
   osmParkMask?: Uint8Array | undefined;
   osmMaskRes?: number | undefined;
+  osmLabels?: import('./city/osmCity').MapLabel[] | undefined;
   budget: Budget;
   stats: CityStats;
   /** monotonic entity id counter */

@@ -37,6 +37,8 @@ export class GameRenderer {
   private routesG = new Graphics();
   private stationsG = new Graphics();
   private labels = new Container();
+  private mapLabels = new Container();
+  private mapLabelItems: { t: Text; imp: number; kind: string }[] = [];
   private overlaySprite: Sprite | null = null;
   private coverageG = new Graphics();
   private trafficRoadsG = new Graphics();
@@ -75,7 +77,7 @@ export class GameRenderer {
       autoDensity: true,
     });
     host.appendChild(this.app.canvas);
-    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.trafficRoadsG, this.tracksG, this.routesG, this.coverageG, this.hotspotsG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
+    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.trafficRoadsG, this.tracksG, this.routesG, this.coverageG, this.hotspotsG, this.mapLabels, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
     this.app.stage.addChild(this.world);
     this.attachInput(this.app.canvas);
     this.app.ticker.add(() => this.tick());
@@ -90,6 +92,7 @@ export class GameRenderer {
   setStaticCity(city: StaticCity): void {
     this.city = city;
     this.drawRoads();
+    this.buildMapLabels();
     this.scale = Math.min(this.app.screen.width, this.app.screen.height) / city.worldSize * 0.95;
     this.cx = 0;
     this.cy = 0;
@@ -485,10 +488,11 @@ export class GameRenderer {
         const wf = hiWater ? sampleMask(hiWater, wxw, wyw) : bil(wsm, fx, fy); // 0..1 water
         let r: number, g: number, b: number;
         if (wf > 0.5) {
-          // elegant flat water: a touch lighter right at the shore, deep beyond.
+          // elegant water: shallower at the shore, plus a gentle stylized ripple
           const shallow = Math.max(0, Math.min(1, 1 - (wf - 0.5) / 0.22));
           const col = mix(PAL.waterDeep, PAL.waterShallow, shallow);
-          r = col[0]; g = col[1]; b = col[2];
+          const ripple = Math.sin(wyw / 190 + hash(cx, cy) * 6.28) * 2.2 + (hash(px + 5, py * 2) - 0.5) * 4;
+          r = col[0] + ripple; g = col[1] + ripple * 1.1; b = col[2] + ripple * 1.3;
         } else {
           const park = hiPark ? sampleMask(hiPark, wxw, wyw) : bil(f.parks, fx, fy);
           const pop = bil(f.population, fx, fy) / maxPop;
@@ -497,11 +501,14 @@ export class GameRenderer {
           let col = mix(PAL.land, PAL.landUrban, Math.min(1, urban));
           // park space (smooth-edged, crisp for real cities)
           if (park > 0.2) col = mix(col, PAL.park, Math.min(1, (park - 0.2) / 0.5));
-          // a thin luminous shoreline just landward of the water edge
-          if (wf > 0.34) col = mix(col, PAL.shoreLine, Math.min(1, (wf - 0.34) / 0.16) * 0.5);
-          // whisper of grain so large flats don't band (no realism clutter)
-          const grain = (hash(cx, cy) - 0.5) * 3;
-          r = col[0] + grain; g = col[1] + grain; b = col[2] + grain;
+          // warm sand just landward of the water, then a thin luminous shore line
+          if (wf > 0.3 && wf <= 0.46) col = mix(col, PAL.sand, ((wf - 0.3) / 0.16) * 0.55);
+          if (wf > 0.42) col = mix(col, PAL.shoreLine, Math.min(1, (wf - 0.42) / 0.08) * 0.45);
+          // stylized surface texture: soft organic mottle on grass, finer grain in the city
+          const mottle = (hash(cx * 2 + 1, cy * 2 + 3) - 0.5) * 6 * (park > 0.2 ? 1.3 : 1 - urban * 0.5);
+          const grain = (hash(px, py) - 0.5) * (3 + urban * 3);
+          const tex = mottle + grain;
+          r = col[0] + tex; g = col[1] + tex * (park > 0.2 ? 1.15 : 1); b = col[2] + tex;
         }
         const o = (py * W * PX + px) * 4;
         data[o] = r;
@@ -807,6 +814,36 @@ export class GameRenderer {
     }
   }
 
+  /** Build zoom-gated map labels (real OSM names) for water / parks / roads. */
+  private buildMapLabels(): void {
+    this.mapLabels.removeChildren().forEach((c) => c.destroy());
+    this.mapLabelItems = [];
+    const labels = this.city?.labels;
+    if (!labels) return;
+    for (const L of labels) {
+      const color = L.kind === 'water' ? 0x8ab6d6 : L.kind === 'park' ? 0x8fc2a0 : 0xb4bac1;
+      const base = L.kind === 'road' ? 26 : 30 + Math.min(3, L.imp) * 5;
+      const t = new Text({
+        text: L.name,
+        style: {
+          fontFamily: 'system-ui, sans-serif',
+          fontStyle: L.kind === 'water' ? 'italic' : 'normal',
+          fontWeight: L.kind === 'road' ? '500' : '600',
+          fontSize: base,
+          fill: color,
+          stroke: { color: PAL.labelHalo, width: 6 },
+          letterSpacing: L.kind === 'water' ? 1.5 : 0.4,
+        },
+      });
+      t.anchor.set(0.5, 0.5);
+      t.position.set(L.x, L.y);
+      if (L.kind === 'road' && L.angle != null) t.rotation = L.angle;
+      t.visible = false;
+      this.mapLabels.addChild(t);
+      this.mapLabelItems.push({ t, imp: L.imp, kind: L.kind });
+    }
+  }
+
   private drawStations(): void {
     const ui = this.ui;
     const g = this.stationsG;
@@ -857,6 +894,19 @@ export class GameRenderer {
       this.app.screen.height / 2 - this.cy * this.scale,
     );
     this.labels.visible = this.scale > 0.12;
+    // map labels: constant on-screen size, revealed by importance as you zoom in
+    const targetPx = 13;
+    for (const it of this.mapLabelItems) {
+      let show: boolean;
+      if (it.kind === 'water') show = this.scale > (it.imp > 2.4 ? 0.045 : it.imp > 1.4 ? 0.09 : 0.18);
+      else if (it.kind === 'park') show = this.scale > (it.imp > 1.8 ? 0.07 : it.imp > 1.2 ? 0.14 : 0.26);
+      else show = this.scale > (it.imp > 2 ? 0.28 : 0.42); // arterials label before collectors
+      it.t.visible = show;
+      if (show) {
+        const base = it.kind === 'road' ? 26 : 30 + Math.min(3, it.imp) * 5;
+        it.t.scale.set(targetPx / (base * this.scale));
+      }
+    }
     // LOD: local streets & buildings fade in as you zoom toward street level
     const lodT = Math.max(0, Math.min(1, (this.scale - 0.075) / 0.09));
     this.localRoadsG.visible = lodT > 0;

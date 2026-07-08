@@ -74,6 +74,7 @@ export interface StaticCity {
   waterMask?: Uint8Array | undefined;
   parkMask?: Uint8Array | undefined;
   maskRes?: number | undefined;
+  labels?: import('@core/city/osmCity').MapLabel[] | undefined;
   roads: { cls: string; points: number[] }[];
 }
 

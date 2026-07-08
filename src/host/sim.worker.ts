@@ -42,6 +42,7 @@ function sendStatic(s: GameState): void {
       waterMask: s.osmWaterMask,
       parkMask: s.osmParkMask,
       maskRes: s.osmMaskRes,
+      labels: s.osmLabels,
       roads: s.roads.map((r) => ({
         cls: r.cls,
         points: r.polyline.points.flatMap((p) => [p.x, p.y]),

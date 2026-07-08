@@ -8,7 +8,7 @@
  */
 import { WORLD_SIZE } from '../constants';
 import { presetByKey, type CityPreset } from './presets';
-import { decodeB64Mask, maskAt, type OsmCityData } from './osmCity';
+import { decodeB64Mask, maskAt, type OsmCityData, type MapLabel } from './osmCity';
 import { cellCenter, cellIndexAt, createFieldGrid } from '../fields';
 import { Noise2D, clamp, makePolyline, vec } from '../geometry';
 import type { Vec2 } from '../geometry';
@@ -39,6 +39,7 @@ export interface GeneratedCity {
   waterMaskHi?: Uint8Array | undefined;
   parkMaskHi?: Uint8Array | undefined;
   maskRes?: number | undefined;
+  labels?: MapLabel[] | undefined;
 }
 
 /** Drop collinear-ish points to keep polylines lean. */
@@ -538,5 +539,5 @@ export function generateCity(seed: number, difficulty: Difficulty, opts: Generat
     (districts[i] as District).name = names[i] as string;
   }
 
-  return { fields, roads, districts, cbd, waterMaskHi: osmWaterHi, parkMaskHi: osmParkHi, maskRes: osm ? osm.maskRes : undefined };
+  return { fields, roads, districts, cbd, waterMaskHi: osmWaterHi, parkMaskHi: osmParkHi, maskRes: osm ? osm.maskRes : undefined, labels: osm ? osm.labels : undefined };
 }

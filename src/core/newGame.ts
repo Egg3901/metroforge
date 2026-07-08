@@ -36,6 +36,7 @@ export function newGame(seed: number, difficulty: Difficulty, options: NewGameOp
     osmWaterMask: city.waterMaskHi,
     osmParkMask: city.parkMaskHi,
     osmMaskRes: city.maskRes,
+    osmLabels: city.labels,
     stations: [],
     tracks: [],
     routes: [],

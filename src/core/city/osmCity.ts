@@ -15,6 +15,19 @@ export interface OsmCityData {
   /** same grid, 1 = park/green (Central Park, Boston Common, …) */
   parkMask?: string;
   roads: { cls: string; pts: number[] }[];
+  /** real OSM place names for map labels */
+  labels?: MapLabel[];
+}
+
+export interface MapLabel {
+  kind: 'road' | 'water' | 'park';
+  name: string;
+  x: number;
+  y: number;
+  /** road labels: baseline angle in radians */
+  angle?: number;
+  /** importance 1..~5 → drives zoom-gated visibility + size */
+  imp: number;
 }
 
 /** Decode a base64 mask to a Uint8Array (1 = set). */
