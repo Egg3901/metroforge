@@ -62,5 +62,6 @@ export function newGame(seed: number, difficulty: Difficulty, options: NewGameOp
     demandDirty: true,
     unlockedModes: ['bus'],
     activeEvents: [],
+    nextEventDay: 8, // no events in the first week
   };
 }

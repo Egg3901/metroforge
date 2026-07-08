@@ -48,6 +48,7 @@ export function deserialize(json: string): GameState {
   return {
     ...s,
     activeEvents: s.activeEvents ?? [],
+    nextEventDay: s.nextEventDay ?? 8,
     fields: fieldsFromJSON(s.fields),
     roads: s.roads.map((r) => ({ id: r.id, cls: r.cls, polyline: makePolyline(r.points) })),
     tracks: s.tracks.map((t) => ({

@@ -226,13 +226,14 @@ function updateEvents(state: GameState, day: number, events: TickEvents): void {
     }
   }
   state.activeEvents = still;
-  // occasionally kick off a new event after a short warm-up
+  // one event at a time, spaced out by a cooldown, so each feels like an occasion
   const rng = new Rng(state.rngState);
-  if (day > 3 && state.activeEvents.length < 2 && rng.chance(0.14)) {
+  if (state.activeEvents.length === 0 && day >= state.nextEventDay && rng.chance(0.2)) {
     const def = rollEvent(rng.next());
     state.activeEvents.push({ id: def.id, daysLeft: def.days });
     state.demandDirty = true; // reflect the demand change on the next assignment
     toasts.push({ message: `${def.name} — ${def.desc}`, tone: def.tone });
+    state.nextEventDay = day + def.days + 12 + rng.int(0, 10); // ~12–22 day gap after it ends
   }
   state.rngState = rng.state();
 }

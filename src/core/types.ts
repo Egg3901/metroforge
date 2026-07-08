@@ -178,6 +178,8 @@ export interface GameState {
   unlockedModes: TransitMode[];
   /** active city events (festivals, closures, …), saved with the game */
   activeEvents: import('./events').ActiveEvent[];
+  /** earliest day a new event may start (enforces spacing between events) */
+  nextEventDay: number;
 }
 
 // ── Commands (the only mutation API) ────────────────────────────────────────
