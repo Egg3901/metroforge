@@ -159,7 +159,7 @@ export function traceStreamlines(field: TensorField, rng: Rng, opts: TraceOption
     const sepEnd = sepAt(seed);
     for (const endIdx of [0, line.length - 1] as const) {
       const end = line[endIdx] as Vec2;
-      const q = snapGrid.nearestPoint(end, sepEnd * 0.85);
+      const q = snapGrid.nearestPoint(end, sepEnd * 1.3);
       if (q && Math.hypot(q.x - end.x, q.y - end.y) > 8 && !opts.blocked(q)) {
         if (endIdx === 0) line.unshift({ ...q });
         else line.push({ ...q });

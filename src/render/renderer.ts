@@ -72,6 +72,8 @@ export class GameRenderer {
       background: 0x0c0c10,
       antialias: true,
       preference: 'webgl',
+      resolution: Math.min(window.devicePixelRatio || 1, 2),
+      autoDensity: true,
     });
     host.appendChild(this.app.canvas);
     this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.carsG, this.tracksG, this.routesG, this.coverageG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
@@ -337,7 +339,7 @@ export class GameRenderer {
   private bakeGround(f: FieldsPayload): void {
     const city = this.city;
     if (!city) return;
-    const PX = 6; // pixels per field cell in the baked texture
+    const PX = 14; // pixels per field cell in the baked texture
     const canvas = document.createElement('canvas');
     canvas.width = city.fieldW * PX;
     canvas.height = city.fieldH * PX;
@@ -544,6 +546,7 @@ export class GameRenderer {
     };
     const housePalette = [0x5c554a, 0x665e50, 0x554e44, 0x6d6456, 0x60584c];
     const towerPalette = [0x686d78, 0x717682, 0x5e636e, 0x7b808c];
+    const aptPalette = [0x8a6754, 0x7d5c4c, 0x93705c, 0x84624f];
     const f = this.fieldsPayload;
     // clearance grid: no lots on top of arterials/collectors
     const CLEAR = 46;
@@ -597,25 +600,58 @@ export class GameRenderer {
         const py = ay + uy * d;
         const use = landUseAt(px, py);
         const towerness = Math.min(1, use.jobs / 60); // CBD cells run 100+ jobs
+        const resDensity = Math.min(1, use.pop / 55); // dense residential cells run 60+
         for (const side of [-1, 1]) {
           const r = hash(px * side, py + side);
-          if (r < 0.25 - towerness * 0.15) continue; // vacant lots, fewer downtown
+          // building typology by land use — this is how you read where people live
+          let w: number;
+          let h: number;
+          let pal: number[];
+          let shadow = false;
+          if (towerness > 0.45) {
+            // office/commercial tower
+            if (r < 0.12) continue;
+            w = 24 + ((r * 7919) % 1) * 16;
+            h = 22 + ((r * 104729) % 1) * 16;
+            pal = towerPalette;
+            shadow = true;
+          } else if (resDensity > 0.55) {
+            // apartment block: big, brick-toned, tightly packed
+            if (r < 0.15) continue;
+            w = 22 + ((r * 7919) % 1) * 10;
+            h = 16 + ((r * 104729) % 1) * 10;
+            pal = aptPalette;
+            shadow = true;
+          } else if (resDensity > 0.25) {
+            // rowhouse strip: medium, warm
+            if (r < 0.28) continue;
+            w = 15 + ((r * 7919) % 1) * 7;
+            h = 11 + ((r * 104729) % 1) * 6;
+            pal = housePalette;
+          } else {
+            // detached house: small and sparse
+            if (r < 0.5) continue;
+            w = 8 + ((r * 7919) % 1) * 5;
+            h = 8 + ((r * 104729) % 1) * 4;
+            pal = housePalette;
+          }
           const setback = 20 + r * 8;
-          const w = 14 + ((r * 7919) % 1) * 12 + towerness * 14; // along street
-          const h = 12 + ((r * 104729) % 1) * 16 + towerness * 16; // depth
           const cxp = px + nx * side * (setback + h / 2);
           const cyp = py + ny * side * (setback + h / 2);
           if (nearMajorRoad(cxp, cyp)) continue; // never spill onto big roads
-          // axis-aligned to the street: draw as rotated quad
           const hw = w / 2;
           const hh = h / 2;
-          g.poly([
-            cxp - ux * hw - nx * hh, cyp - uy * hw - ny * hh,
-            cxp + ux * hw - nx * hh, cyp + uy * hw - ny * hh,
-            cxp + ux * hw + nx * hh, cyp + uy * hw + ny * hh,
-            cxp - ux * hw + nx * hh, cyp - uy * hw + ny * hh,
-          ]);
-          const pal = towerness > 0.45 ? towerPalette : housePalette;
+          const quad = (offX: number, offY: number): number[] => [
+            cxp + offX - ux * hw - nx * hh, cyp + offY - uy * hw - ny * hh,
+            cxp + offX + ux * hw - nx * hh, cyp + offY + uy * hw - ny * hh,
+            cxp + offX + ux * hw + nx * hh, cyp + offY + uy * hw + ny * hh,
+            cxp + offX - ux * hw + nx * hh, cyp + offY - uy * hw + ny * hh,
+          ];
+          if (shadow) {
+            g.poly(quad(5, 7));
+            g.fill({ color: 0x0c0c10, alpha: 0.3 });
+          }
+          g.poly(quad(0, 0));
           g.fill({ color: pal[(r * pal.length) | 0] ?? 0x5c554a });
         }
       }

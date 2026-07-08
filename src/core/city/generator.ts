@@ -325,7 +325,7 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
     bridgeMaxSteps: 0,
     blocked: isWaterAt,
     maxLength: 2600,
-    minLength: 200,
+    minLength: 330,
     seeds: localSeeds,
     snapTargets: arterialSamples,
     spawnSeeds: true,
