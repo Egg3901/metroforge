@@ -23,6 +23,8 @@ export interface TraceOptions {
   minLength: number;
   /** seeds to start from, in priority order */
   seeds: Vec2[];
+  /** existing road sample points (e.g. arterials) that new lines may snap/join onto */
+  snapTargets?: Vec2[];
   /** how many extra seeds to spawn along each accepted streamline */
   spawnSeeds: boolean;
   eigenDirs: (0 | 1)[];
@@ -43,6 +45,27 @@ class SeparationGrid {
     const arr = this.map.get(k);
     if (arr) arr.push(p);
     else this.map.set(k, [p]);
+  }
+  nearestPoint(p: Vec2, radius: number): Vec2 | null {
+    let best = radius * radius;
+    let bestQ: Vec2 | null = null;
+    const r = Math.ceil(radius / this.cell);
+    const cx = Math.floor(p.x / this.cell);
+    const cy = Math.floor(p.y / this.cell);
+    for (let oy = -r; oy <= r; oy++) {
+      for (let ox = -r; ox <= r; ox++) {
+        const arr = this.map.get((cx + ox) * 73856093 + (cy + oy) * 19349663);
+        if (!arr) continue;
+        for (const q of arr) {
+          const d = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y);
+          if (d < best) {
+            best = d;
+            bestQ = q;
+          }
+        }
+      }
+    }
+    return bestQ;
   }
   nearest(p: Vec2, radius: number): number {
     let best = Infinity;
@@ -79,6 +102,10 @@ export function traceStreamlines(field: TensorField, rng: Rng, opts: TraceOption
     1: new SeparationGrid(Math.max(40, minSep / 2)),
   };
   const results: Vec2[][] = [];
+  // every accepted sample from ANY family + provided targets: line ends snap
+  // onto this so the network is connected instead of almost-touching
+  const snapGrid = new SeparationGrid(Math.max(40, minSep / 2));
+  for (const t of opts.snapTargets ?? []) snapGrid.add(t);
   const queue: Vec2[] = [...opts.seeds];
 
   const traceOne = (seed: Vec2, eigen: 0 | 1): Vec2[] | null => {
@@ -128,6 +155,16 @@ export function traceStreamlines(field: TensorField, rng: Rng, opts: TraceOption
     const fwd = halves[0] as Vec2[];
     const line = [...back.reverse(), { ...seed }, ...fwd];
     if (line.length * STEP < opts.minLength) return null;
+    // connect: snap both ends onto the nearest existing road point
+    const sepEnd = sepAt(seed);
+    for (const endIdx of [0, line.length - 1] as const) {
+      const end = line[endIdx] as Vec2;
+      const q = snapGrid.nearestPoint(end, sepEnd * 0.85);
+      if (q && Math.hypot(q.x - end.x, q.y - end.y) > 8 && !opts.blocked(q)) {
+        if (endIdx === 0) line.unshift({ ...q });
+        else line.push({ ...q });
+      }
+    }
     return line;
   };
 
@@ -141,7 +178,10 @@ export function traceStreamlines(field: TensorField, rng: Rng, opts: TraceOption
       if (!line) continue;
       results.push(line);
       const sep = sepAt(seed);
-      for (const p of line) grids[eigen].add(p);
+      for (const p of line) {
+        grids[eigen].add(p);
+        snapGrid.add(p);
+      }
       if (opts.spawnSeeds) {
         // Jobard–Lefer: candidate seeds offset perpendicular to the line
         for (let i = 4; i < line.length - 4; i += 4) {

@@ -294,6 +294,8 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
     const cand = vec(rng.range(-HALF * 0.9, HALF * 0.9), rng.range(-HALF * 0.9, HALF * 0.9));
     if (densityAt(cand) > 0.5) localSeeds.push(cand);
   }
+  const arterialSamples: Vec2[] = [];
+  for (const line of arterials) for (const p of line) arterialSamples.push(p);
   const locals = traceStreamlines(field, rng.fork(13), {
     separation: (p) => {
       const d = densityAt(p);
@@ -305,6 +307,7 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
     maxLength: 2600,
     minLength: 200,
     seeds: localSeeds,
+    snapTargets: arterialSamples,
     spawnSeeds: true,
     eigenDirs: [0, 1],
   });

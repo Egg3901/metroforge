@@ -39,6 +39,7 @@ export class GameRenderer {
   private routesG = new Graphics();
   private stationsG = new Graphics();
   private labels = new Container();
+  private carsG = new Graphics();
   private vehiclesG = new Graphics();
   private agentsG = new Graphics();
   private ghostG = new Graphics();
@@ -68,7 +69,7 @@ export class GameRenderer {
       preference: 'webgl',
     });
     host.appendChild(this.app.canvas);
-    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.tracksG, this.routesG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
+    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.carsG, this.tracksG, this.routesG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
     this.app.stage.addChild(this.world);
     this.attachInput(this.app.canvas);
     this.app.ticker.add(() => this.tick());
@@ -602,6 +603,28 @@ export class GameRenderer {
         if (occ > 0.9) {
           vg.circle(x, y, 40);
           vg.stroke({ width: 8, color: 0xf87171, alpha: 0.9 });
+        }
+      }
+
+      // ambient cars on the road network
+      const cg = this.carsG;
+      cg.clear();
+      if (this.scale > 0.05) {
+        for (let i = 0; i < f.carCount; i++) {
+          const x = f.cars[i * 3] as number;
+          const y = f.cars[i * 3 + 1] as number;
+          const heading = f.cars[i * 3 + 2] as number;
+          const cos = Math.cos(heading);
+          const sin = Math.sin(heading);
+          const l = 14;
+          const w2 = 6;
+          cg.poly([
+            x + cos * l - sin * w2, y + sin * l + cos * w2,
+            x + cos * l + sin * w2, y + sin * l - cos * w2,
+            x - cos * l + sin * w2, y - sin * l - cos * w2,
+            x - cos * l - sin * w2, y - sin * l + cos * w2,
+          ]);
+          cg.fill({ color: (i % 7 === 0) ? 0xd8b96a : 0xdcdcd4, alpha: 0.9 });
         }
       }
 

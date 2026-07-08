@@ -81,12 +81,15 @@ export interface FieldsPayload {
 
 /** vehicles: stride 6 = [id, x, y, heading, occupancy, routeColorIndex] */
 /** agents: stride 3 = [x, y, phase(0 walk,1 ride,2 wait)] */
+/** cars: stride 3 = [x, y, heading] — ambient road traffic */
 export interface FrameSnapshot {
   tick: number;
   vehicles: Float32Array;
   vehicleCount: number;
   agents: Float32Array;
   agentCount: number;
+  cars: Float32Array;
+  carCount: number;
   routeColorOf: Record<number, string>;
 }
 

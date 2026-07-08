@@ -13,6 +13,7 @@ import { simTick } from '@core/sim';
 import { getRoutePath } from '@core/transit/routePath';
 import type { GameState } from '@core/types';
 import { AgentPool } from './agents';
+import { CarPool } from './cars';
 import type { FromSim, ToSim, UiState } from './protocol';
 
 let state: GameState | null = null;
@@ -20,6 +21,7 @@ let speed = 1; // game-seconds per real second (1x = 1); UI offers 1/10/30/120
 let fieldsVersion = 1;
 let bankrupt = false;
 const agents = new AgentPool();
+const cars = new CarPool();
 let lastFlowsRef: unknown = null;
 
 const post = (msg: FromSim, transfer?: Transferable[]): void => {
@@ -135,6 +137,7 @@ function sendFrame(s: GameState): void {
     n++;
   }
   const agentBuf = agents.buffer.slice(0, agents.count * 3);
+  const carBuf = cars.buffer.slice(0, cars.count * 3);
   post(
     {
       type: 'frame',
@@ -144,10 +147,12 @@ function sendFrame(s: GameState): void {
         vehicleCount: n,
         agents: agentBuf,
         agentCount: agents.count,
+        cars: carBuf,
+        carCount: cars.count,
         routeColorOf,
       },
     },
-    [buf.buffer, agentBuf.buffer],
+    [buf.buffer, agentBuf.buffer, carBuf.buffer],
   );
 }
 
@@ -176,8 +181,11 @@ setInterval(() => {
   if (state.flows !== lastFlowsRef) {
     lastFlowsRef = state.flows;
     agents.resample(state);
+    cars.resample(state);
   }
   agents.update(speed / 20);
+  // ambient traffic keeps flowing at a watchable pace regardless of sim speed
+  cars.update((speed === 0 ? 0.7 : Math.min(speed, 6)) / 20);
   sendFrame(state);
   if (--uiCountdown <= 0) {
     uiCountdown = 10; // UI state at 2 Hz
@@ -192,6 +200,7 @@ self.onmessage = (e: MessageEvent<ToSim>) => {
       state = newGame(msg.seed, msg.difficulty);
       bankrupt = false;
       fieldsVersion++;
+      cars.resample(state);
       sendStatic(state);
       post({ type: 'ui', ui: buildUi(state) });
       break;
@@ -200,6 +209,7 @@ self.onmessage = (e: MessageEvent<ToSim>) => {
         state = deserialize(msg.json);
         bankrupt = false;
         fieldsVersion++;
+        cars.resample(state);
         sendStatic(state);
         post({ type: 'ui', ui: buildUi(state) });
       } catch (err) {
