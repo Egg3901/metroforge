@@ -45,8 +45,11 @@ export class GameRenderer {
   private hotspotsG = new Graphics();
   private overlayMode: OverlayMode = 'none';
   private traffic: TrafficPayload | null = null;
+  private flowG = new Graphics();
   private vehiclesG = new Graphics();
   private agentsG = new Graphics();
+  /** per-route polyline + arc-length table, for animating passenger-flow motes */
+  private routePaths: { color: number | string; pts: number[]; cum: number[]; total: number; ridership: number }[] = [];
   private ghostG = new Graphics();
 
   private city: StaticCity | null = null;
@@ -77,7 +80,7 @@ export class GameRenderer {
       autoDensity: true,
     });
     host.appendChild(this.app.canvas);
-    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.trafficRoadsG, this.tracksG, this.routesG, this.coverageG, this.hotspotsG, this.mapLabels, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
+    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.trafficRoadsG, this.tracksG, this.routesG, this.coverageG, this.hotspotsG, this.flowG, this.mapLabels, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
     this.app.stage.addChild(this.world);
     this.attachInput(this.app.canvas);
     this.app.ticker.add(() => this.tick());
@@ -787,6 +790,7 @@ export class GameRenderer {
       for (let i = 2; i < path.length; i += 2) g.lineTo(path[i] as number, path[i + 1] as number);
       g.stroke({ width: w, color, alpha, cap: 'round', join: 'round' });
     };
+    this.routePaths = [];
     for (const r of ui.routes) {
       const path: number[] = [];
       for (let i = 0; i + 1 < r.stationIds.length; i++) {
@@ -811,7 +815,36 @@ export class GameRenderer {
       strokePath(path, 28, r.color, 0.16);
       strokePath(path, 22, PAL.void, 0.9);
       strokePath(path, 12, r.color, 1);
+      // arc-length table for animated passenger-flow motes (drawn per-frame)
+      const cum: number[] = [0];
+      let total = 0;
+      for (let i = 2; i < path.length; i += 2) {
+        total += Math.hypot((path[i] as number) - (path[i - 2] as number), (path[i + 1] as number) - (path[i - 1] as number));
+        cum.push(total);
+      }
+      this.routePaths.push({ color: r.color, pts: path, cum, total, ridership: r.dailyRidership });
     }
+  }
+
+  /** Point at arc-length d along a stored route polyline. */
+  private pointAlongRoute(rp: { pts: number[]; cum: number[]; total: number }, d: number): { x: number; y: number } {
+    const { pts, cum } = rp;
+    let lo = 0;
+    let hi = cum.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if ((cum[mid] as number) < d) lo = mid + 1;
+      else hi = mid;
+    }
+    const seg = Math.max(1, lo);
+    const d0 = cum[seg - 1] as number;
+    const segLen = (cum[seg] as number) - d0 || 1;
+    const t = Math.max(0, Math.min(1, (d - d0) / segLen));
+    const ax = pts[(seg - 1) * 2] as number;
+    const ay = pts[(seg - 1) * 2 + 1] as number;
+    const bx = pts[seg * 2] as number;
+    const by = pts[seg * 2 + 1] as number;
+    return { x: ax + (bx - ax) * t, y: ay + (by - ay) * t };
   }
 
   /** Build zoom-gated map labels (real OSM names) for water / parks / roads. */
@@ -932,6 +965,25 @@ export class GameRenderer {
         hg.fill({ color: col, alpha: 0.85 });
         hg.poly([h.x, h.y - base * 0.55, h.x + base * 0.55, h.y, h.x, h.y + base * 0.55, h.x - base * 0.55, h.y]);
         hg.stroke({ width: 6, color: 0x1a0d0a, alpha: 0.6 });
+      }
+    }
+
+    // animated passenger-flow motes streaming along the lines (density ∝ ridership)
+    const fg = this.flowG;
+    fg.clear();
+    if (this.scale > 0.05 && this.routePaths.length) {
+      const speed = 240; // world units / real second — constant regardless of sim speed
+      const tsec = this.clock / 1000;
+      const moteR = Math.max(2.5, 5 / Math.sqrt(this.scale)) * 0.55;
+      for (const rp of this.routePaths) {
+        if (rp.total < 120) continue;
+        const count = Math.max(2, Math.min(64, Math.round((rp.total / 340) * (0.4 + Math.min(1.4, rp.ridership / 3500)))));
+        for (let i = 0; i < count; i++) {
+          const d = ((i / count) * rp.total + tsec * speed) % rp.total;
+          const p = this.pointAlongRoute(rp, d);
+          fg.circle(p.x, p.y, moteR);
+        }
+        fg.fill({ color: rp.color, alpha: 0.92 });
       }
     }
 
