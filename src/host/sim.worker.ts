@@ -69,9 +69,37 @@ function sendFields(s: GameState): void {
   });
 }
 
+/** Plain-language "why is it like this" cues derived from current state, so a
+ *  player can read the network's health without inferring it from raw numbers. */
+function computeInsights(s: GameState): string[] {
+  const out: string[] = [];
+  const packed = s.routes.filter((r) => r.crowding > 1).sort((a, b) => b.crowding - a.crowding);
+  if (packed.length > 0) {
+    const r = packed[0]!;
+    out.push(`${r.name} is over capacity (${Math.round(r.crowding * 100)}%) and turning riders away. Add vehicles.`);
+  }
+  const ld = s.budget.lastDay;
+  if (ld.fares > 0 && ld.fares < ld.operations + ld.maintenance) {
+    out.push(`Fares cover only ${Math.round((ld.fares / (ld.operations + ld.maintenance)) * 100)}% of running costs.`);
+  }
+  if (s.stats.coverage < 0.35 && s.stations.length > 0) {
+    out.push(`Only ${Math.round(s.stats.coverage * 100)}% of residents live near a stop. Extend your reach.`);
+  }
+  const gap = (s.unserved ?? [])[0];
+  if (gap && s.stats.transitShare < 0.4) {
+    out.push('Big travel demand is still driving. Check the Gaps overlay for where to build next.');
+  }
+  for (const a of s.activeEvents) {
+    const d = EVENT_DEFS.find((e) => e.id === a.id);
+    if (d) out.push(`${d.name}: ${d.desc}`);
+  }
+  return out.slice(0, 4);
+}
+
 function buildUi(s: GameState): UiState {
   return {
     tick: s.tick,
+    insights: computeInsights(s),
     day: Math.floor(s.tick / TICKS_PER_DAY) + 1,
     speed,
     cash: s.budget.cash,

@@ -347,6 +347,17 @@ export function BudgetPanel(): React.JSX.Element | null {
             <div className={`text-sm font-mono ${recovery >= 1 ? 'text-emerald-300' : 'text-zinc-200'}`}>{Math.round(recovery * 100)}%</div>
           </div>
         </div>
+        {ui.insights.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] uppercase tracking-wide text-zinc-500">What is happening</div>
+            {ui.insights.map((t, i) => (
+              <div key={i} className="flex gap-2 text-[11px] text-zinc-300 bg-zinc-900/50 rounded-md px-2 py-1.5">
+                <span className="text-amber-400 shrink-0">›</span>
+                <span>{t}</span>
+              </div>
+            ))}
+          </div>
+        )}
         <table className="w-full text-xs">
           <tbody>
             {rows.map(([label, v]) => (

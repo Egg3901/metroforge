@@ -72,6 +72,12 @@ async function main(): Promise<void> {
     await page.getByRole('button', { name: /^Gaps$/ }).click().catch(() => {});
     await page.waitForTimeout(1500);
   }
+  if (process.argv.includes('finances')) {
+    await page.getByRole('button', { name: '60×' }).click().catch(() => {});
+    await page.waitForTimeout(12000);
+    await page.getByTitle(/tap for the budget/i).click().catch(() => {});
+    await page.waitForTimeout(700);
+  }
   if (process.argv.includes('lines')) {
     await page.getByRole('button', { name: 'Lines' }).click().catch(() => {});
     await page.waitForTimeout(800);

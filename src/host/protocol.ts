@@ -45,6 +45,7 @@ export interface UiRoute {
 
 export interface UiState {
   tick: number;
+  insights: string[];
   day: number;
   speed: number;
   cash: number;
