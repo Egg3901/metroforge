@@ -16,6 +16,7 @@ import { dist } from './geometry';
 import { Rng } from './rng';
 import { runAssignment } from './transit/assignment';
 import { computeTraffic } from './transit/traffic';
+import { EVENT_DEFS, eventApprovalDelta, eventFareMult, rollEvent } from './events';
 import { getRoutePath } from './transit/routePath';
 import type { GameState, Station } from './types';
 
@@ -24,6 +25,8 @@ export interface TickEvents {
   bankrupt?: boolean;
   modeUnlocked?: string;
   messages: string[];
+  /** themed toasts (city events) with a tone */
+  toasts?: { message: string; tone: 'good' | 'warn' | 'info' }[];
 }
 
 let bankruptDays = 0; // transient across ticks in a session; persisted via save hook below
@@ -50,6 +53,7 @@ export function simTick(state: GameState): TickEvents {
   if (state.tick % TICKS_PER_DAY === 0) {
     const day = state.tick / TICKS_PER_DAY;
     events.dayCompleted = day;
+    updateEvents(state, day, events);
     runDailyEconomy(state, day, events);
     updateApproval(state);
     checkUnlocks(state, events);
@@ -180,6 +184,7 @@ function runDailyEconomy(state: GameState, _day: number, events: TickEvents): vo
     const cfg = MODES[r.mode];
     operations += r.vehicleCount * (cfg.opsPerVehiclePerDay + cfg.maintPerVehiclePerDay);
   }
+  fares *= eventFareMult(state.activeEvents); // fare-free events waive the farebox
   for (const t of state.tracks) {
     maintenance += (t.polyline.length / 1000) * MODES[t.mode].maintPerKmPerDay;
   }
@@ -202,10 +207,34 @@ function runDailyEconomy(state: GameState, _day: number, events: TickEvents): vo
 
 function updateApproval(state: GameState): void {
   const s = state.stats;
-  // drift toward a target driven by coverage + transit share
-  const target = Math.min(100, 25 + s.coverage * 90 + s.transitShare * 60);
+  // drift toward a target driven by coverage + transit share, plus event mood
+  const target = Math.min(100, Math.max(0, 25 + s.coverage * 90 + s.transitShare * 60 + eventApprovalDelta(state.activeEvents) * 2));
   s.approval += (target - s.approval) * 0.08;
   s.approval = Math.max(0, Math.min(100, s.approval));
+}
+
+/** Tick down active city events and occasionally start a new one (seeded). */
+function updateEvents(state: GameState, day: number, events: TickEvents): void {
+  const toasts = events.toasts ?? (events.toasts = []);
+  const still: GameState['activeEvents'] = [];
+  for (const a of state.activeEvents) {
+    a.daysLeft -= 1;
+    if (a.daysLeft > 0) still.push(a);
+    else {
+      const d = EVENT_DEFS.find((e) => e.id === a.id);
+      if (d) toasts.push({ message: `${d.name} has ended.`, tone: 'info' });
+    }
+  }
+  state.activeEvents = still;
+  // occasionally kick off a new event after a short warm-up
+  const rng = new Rng(state.rngState);
+  if (day > 3 && state.activeEvents.length < 2 && rng.chance(0.14)) {
+    const def = rollEvent(rng.next());
+    state.activeEvents.push({ id: def.id, daysLeft: def.days });
+    state.demandDirty = true; // reflect the demand change on the next assignment
+    toasts.push({ message: `${def.name} — ${def.desc}`, tone: def.tone });
+  }
+  state.rngState = rng.state();
 }
 
 function checkUnlocks(state: GameState, events: TickEvents): void {

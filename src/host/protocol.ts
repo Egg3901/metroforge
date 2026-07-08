@@ -54,6 +54,8 @@ export interface UiState {
   stations: UiStation[];
   tracks: UiTrack[];
   routes: UiRoute[];
+  /** active city events (name + days remaining) */
+  activeEvents: { id: string; name: string; daysLeft: number }[];
   /** bumped when land-use fields changed (renderer re-bakes) */
   fieldsVersion: number;
   bankrupt: boolean;

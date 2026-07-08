@@ -9,6 +9,7 @@ import { applyCommand, trackCost } from '@core/commands';
 import { pointAlong } from '@core/geometry';
 import { newGame } from '@core/newGame';
 import { loadOsmCity } from '@core/city/osmRegistry';
+import { EVENT_DEFS } from '@core/events';
 import { deserialize, serialize } from '@core/save';
 import { simTick } from '@core/sim';
 import { getRoutePath } from '@core/transit/routePath';
@@ -115,6 +116,7 @@ function buildUi(s: GameState): UiState {
         lengthMeters: path ? path.length / 2 : 0,
       };
     }),
+    activeEvents: s.activeEvents.map((a) => ({ id: a.id, name: EVENT_DEFS.find((e) => e.id === a.id)?.name ?? a.id, daysLeft: a.daysLeft })),
     fieldsVersion,
     bankrupt,
   };
@@ -192,6 +194,7 @@ setInterval(() => {
     accumulator -= 1;
     ticksRun++;
     for (const m of events.messages) post({ type: 'toast', message: m, tone: 'info' });
+    for (const t of events.toasts ?? []) post({ type: 'toast', message: t.message, tone: t.tone });
     if (events.modeUnlocked) post({ type: 'toast', message: `${events.modeUnlocked} unlocked!`, tone: 'good' });
     if (events.bankrupt) {
       bankrupt = true;

@@ -9,6 +9,7 @@
  */
 import { MODES, TRANSFER_PENALTY_MIN, WALK_SPEED } from '../constants';
 import { dist } from '../geometry';
+import { eventDemandMult } from '../events';
 import type { District, FlowResult, GameState, RouteDef, Station } from '../types';
 
 const CAR_SPEED = 8.3; // m/s effective urban driving
@@ -186,10 +187,12 @@ export function runAssignment(state: GameState): AssignmentOutput {
   const routeById = new Map(routes.map((r) => [r.id, r]));
   const fareOf = (rid: number): number => routeById.get(rid)?.fare ?? 0;
 
+  // citywide demand multiplier from active events (festivals, fuel spikes, …)
+  const demandMult = eventDemandMult(state.activeEvents);
   // destination choice weights per origin (gravity)
   for (const origin of districts) {
     if (origin.population < 50) continue;
-    const originTrips = origin.population * TRIP_RATE;
+    const originTrips = origin.population * TRIP_RATE * demandMult;
 
     const destWeights: { d: District; w: number }[] = [];
     for (const dest of districts) {

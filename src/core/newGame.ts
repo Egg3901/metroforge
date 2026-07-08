@@ -61,5 +61,6 @@ export function newGame(seed: number, difficulty: Difficulty, options: NewGameOp
     nextId: 1,
     demandDirty: true,
     unlockedModes: ['bus'],
+    activeEvents: [],
   };
 }

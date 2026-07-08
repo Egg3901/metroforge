@@ -151,6 +151,22 @@ function NewGameScreen(): React.JSX.Element {
   );
 }
 
+function EventsBanner(): React.JSX.Element | null {
+  const events = useStore((s) => s.ui?.activeEvents ?? []);
+  if (events.length === 0) return null;
+  return (
+    <div className="absolute top-14 sm:top-14 left-1/2 -translate-x-1/2 z-10 flex gap-2 pointer-events-none max-w-[90vw] flex-wrap justify-center">
+      {events.map((e) => (
+        <div key={e.id} className="flex items-center gap-1.5 rounded-full bg-zinc-950/85 backdrop-blur border border-amber-500/40 px-3 py-1 text-xs text-zinc-200 shadow-lg">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+          <span className="font-medium">{e.name}</span>
+          <span className="text-zinc-500 tabular-nums">{e.daysLeft}d</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function WinOverlay(): React.JSX.Element {
   const scenario = useStore((s) => s.scenario);
   return (
@@ -178,6 +194,7 @@ export function App(): React.JSX.Element {
     <div className="fixed inset-0 bg-zinc-950">
       <GameCanvas />
       {started && <HUD />}
+      {started && <EventsBanner />}
       {started && <Toolbar />}
       {started && panel === 'station' && <StationPanel />}
       {started && panel === 'route' && <RoutePanel />}

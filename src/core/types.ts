@@ -176,6 +176,8 @@ export interface GameState {
   /** set when land use / network changed; assignment reruns on next demand pass */
   demandDirty: boolean;
   unlockedModes: TransitMode[];
+  /** active city events (festivals, closures, …), saved with the game */
+  activeEvents: import('./events').ActiveEvent[];
 }
 
 // ── Commands (the only mutation API) ────────────────────────────────────────
