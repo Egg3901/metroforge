@@ -22,13 +22,14 @@ interface CityCfg {
   label: string;
   /** OSM bbox: south, west, north, east */
   bbox: [number, number, number, number];
-  /** a known-on-land lat/lon, to orient the coastline water-side test */
-  land: [number, number];
 }
 
+// bboxes must match scripts/extract-water.ts
 const CITIES: CityCfg[] = [
-  { key: 'nyc', label: 'New York', bbox: [40.695, -74.02, 40.80, -73.93], land: [40.758, -73.985] },
-  { key: 'boston', label: 'Boston', bbox: [42.33, -71.11, 42.40, -71.02], land: [42.355, -71.065] },
+  { key: 'nyc', label: 'New York', bbox: [40.695, -74.02, 40.80, -73.93] },
+  { key: 'boston', label: 'Boston', bbox: [42.33, -71.11, 42.40, -71.02] },
+  { key: 'chicago', label: 'Chicago', bbox: [41.83, -87.70, 41.95, -87.58] },
+  { key: 'cleveland', label: 'Cleveland', bbox: [41.45, -81.75, 41.54, -81.63] },
 ];
 
 type LL = { lat: number; lon: number };
@@ -97,6 +98,54 @@ function ringsOf(els: OsmEl[]): LL[][] {
   return rings;
 }
 
+/** Stitch member ways into closed rings by connecting shared endpoints — an OSM
+ *  multipolygon's outer/inner boundary is often split across several ways. */
+function assembleRings(ways: LL[][]): LL[][] {
+  const key = (p: LL): string => `${p.lat.toFixed(7)},${p.lon.toFixed(7)}`;
+  const rings: LL[][] = [];
+  const rem = ways.filter((w) => w.length >= 2).map((w) => w.slice());
+  while (rem.length) {
+    const ring = rem.shift()!.slice();
+    let go = true;
+    while (go && key(ring[0]!) !== key(ring[ring.length - 1]!)) {
+      go = false;
+      const end = key(ring[ring.length - 1]!);
+      const start = key(ring[0]!);
+      for (let i = 0; i < rem.length; i++) {
+        const s = rem[i]!;
+        const a = key(s[0]!), b = key(s[s.length - 1]!);
+        if (a === end) { ring.push(...s.slice(1)); }
+        else if (b === end) { ring.push(...s.slice(0, -1).reverse()); }
+        else if (b === start) { ring.unshift(...s.slice(0, -1)); }
+        else if (a === start) { ring.unshift(...s.slice(1).reverse()); }
+        else continue;
+        rem.splice(i, 1); go = true; break;
+      }
+    }
+    if (ring.length >= 3) rings.push(ring);
+  }
+  return rings;
+}
+
+/** Outer + inner (hole) rings, so multipolygon water with land holes is correct. */
+function classifyRings(els: OsmEl[]): { outers: LL[][]; inners: LL[][] } {
+  const outers: LL[][] = [];
+  const inners: LL[][] = [];
+  for (const e of els) {
+    if (e.type === 'way' && e.geometry && e.geometry.length >= 3) outers.push(e.geometry);
+    else if (e.type === 'relation' && e.members) {
+      const ow: LL[][] = [], iw: LL[][] = [];
+      for (const m of e.members) {
+        if (m.type !== 'way' || !m.geometry || m.geometry.length < 2) continue;
+        (m.role === 'inner' ? iw : ow).push(m.geometry);
+      }
+      for (const r of assembleRings(ow)) outers.push(r);
+      for (const r of assembleRings(iw)) inners.push(r);
+    }
+  }
+  return { outers, inners };
+}
+
 const CLASS: Record<string, 'arterial' | 'collector' | 'local'> = {
   motorway: 'arterial', trunk: 'arterial', primary: 'arterial',
   motorway_link: 'arterial', trunk_link: 'arterial', primary_link: 'arterial',
@@ -111,13 +160,22 @@ function build(cfg: CityCfg): void {
     `[out:json][timeout:90];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|unclassified)(_link)?$"](${bb});out geom;`,
     `${cfg.key}-roads`,
   ));
-  const coast = waysOf(fetchRaw(`[out:json][timeout:90];way["natural"="coastline"](${bb});out geom;`, `${cfg.key}-coast`));
-  // water: ways AND relations (big rivers like the Charles are multipolygons)
+  // pre-assembled sea polygons (coastline-derived) from OpenStreetMapData.com,
+  // extracted per city by scripts/extract-water.ts — topologically clean, no
+  // flood/seed reconstruction. Inland water (lakes/rivers) still from OSM below.
+  let ocean: { outers: LL[][]; inners: LL[][] } = { outers: [], inners: [] };
+  const ocPath = `.cache/osmdata/${cfg.key}-ocean.json`;
+  if (existsSync(ocPath)) {
+    const raw = JSON.parse(readFileSync(ocPath, 'utf8')) as { outers: [number, number][][]; inners: [number, number][][] };
+    const conv = (rings: [number, number][][]): LL[][] => rings.map((r) => r.map(([lat, lon]) => ({ lat, lon })));
+    ocean = { outers: conv(raw.outers), inners: conv(raw.inners) };
+  }
+  // water: ways AND relations (lakes, rivers like the Charles, Chicago River)
   const waterEls = fetchRaw(
     `[out:json][timeout:90];(way["natural"="water"](${bb});way["waterway"="riverbank"](${bb});relation["natural"="water"](${bb});relation["waterway"="riverbank"](${bb}););out geom;`,
     `${cfg.key}-water2`,
   );
-  const waterRings = ringsOf(waterEls);
+  const waterR = classifyRings(waterEls);
   // named river/bay centerlines for labels (Hudson, East River, Charles, ...)
   const waterwayEls = fetchRaw(
     `[out:json][timeout:90];(way["waterway"="river"]["name"](${bb});relation["natural"="water"]["name"](${bb}););out geom;`,
@@ -151,13 +209,9 @@ function build(cfg: CityCfg): void {
     outRoads.push({ cls, pts: simp.flatMap(([x, y]) => [Math.round(x), Math.round(y)]) });
   }
 
-  // ── water: coastline segments (dir preserved) + inland polygons ──
-  const coastSegs: [number, number, number, number][] = [];
-  for (const way of coast) {
-    const pts = way.geometry.map(P);
-    for (let i = 0; i + 1 < pts.length; i++) coastSegs.push([pts[i]![0], pts[i]![1], pts[i + 1]![0], pts[i + 1]![1]]);
-  }
-  const waterPolys: number[][] = waterRings.map((ring) => ring.map(P).flat());
+  // union: pre-assembled sea polygons + inland OSM water (both with holes)
+  const waterOuter: number[][] = [...ocean.outers, ...waterR.outers].map((ring) => ring.map(P).flat());
+  const waterInner: number[][] = [...ocean.inners, ...waterR.inners].map((ring) => ring.map(P).flat());
   const parkPolys: number[][] = parkRings.map((ring) => ring.map(P).flat());
 
   // ── labels: real OSM names for roads / water / parks ──
@@ -201,29 +255,6 @@ function build(cfg: CityCfg): void {
     labels.push({ kind: 'road', name, x: Math.round(x), y: Math.round(y), angle: Math.round(angle * 1000) / 1000, imp: CLASS[way.tags.highway ?? ''] === 'arterial' ? 2.5 : 1.6 });
   }
 
-  // orient the coastline: OSM keeps land on the left; find the sign that puts
-  // the known land point on the land side.
-  const [lx, ly] = P({ lat: cfg.land[0], lon: cfg.land[1] });
-  const sideAt = (x: number, y: number): number => {
-    let best = Infinity;
-    let cross = 0;
-    for (const [ax, ay, bx, by] of coastSegs) {
-      const dx = bx - ax;
-      const dy = by - ay;
-      const L2 = dx * dx + dy * dy || 1;
-      let t = ((x - ax) * dx + (y - ay) * dy) / L2;
-      t = Math.max(0, Math.min(1, t));
-      const qx = ax + dx * t;
-      const qy = ay + dy * t;
-      const d = (qx - x) * (qx - x) + (qy - y) * (qy - y);
-      if (d < best) {
-        best = d;
-        cross = dx * (y - ay) - dy * (x - ax); // >0 : left of a->b
-      }
-    }
-    return cross;
-  };
-  const landSign = Math.sign(sideAt(lx, ly)) || 1; // land is on this sign; water is the other
   const pointInPoly = (x: number, y: number, poly: number[]): boolean => {
     let inside = false;
     for (let i = 0, j = poly.length - 2; i < poly.length; j = i, i += 2) {
@@ -234,44 +265,41 @@ function build(cfg: CityCfg): void {
   };
   const N = MASK_RES;
   const cellW = WORLD / N;
-  // raw water: coastline side-test + inland water polygons. Mark poly cells so we
-  // can keep those components even if small (real lakes).
-  const raw = new Uint8Array(N * N);
-  const polyCell = new Uint8Array(N * N);
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
-      const x = -HALF + (c + 0.5) * cellW;
-      const y = -HALF + (r + 0.5) * cellW;
-      let isWater = false;
-      for (const poly of waterPolys) if (pointInPoly(x, y, poly)) { isWater = true; polyCell[r * N + c] = 1; break; }
-      if (!isWater && coastSegs.length) isWater = Math.sign(sideAt(x, y)) !== landSign;
-      raw[r * N + c] = isWater ? 1 : 0;
-    }
-  }
-  // ── Keep only water components that touch the map border or a real water
-  // polygon. This deletes the small inland "ponds" the side-test sprays near
-  // concave shorelines, while keeping the harbor/rivers/lakes. ──
+  const cellOf = (x: number, y: number): number => {
+    const c = Math.floor((x + HALF) / cellW);
+    const r = Math.floor((y + HALF) / cellW);
+    if (c < 0 || r < 0 || c >= N || r >= N) return -1;
+    return r * N + c;
+  };
+
+  // ── Land/water by EXACT polygon rasterization (scanline). Fill every water
+  // outer ring (pre-assembled sea + inland OSM water), then punch out the
+  // inner-ring holes (land inside water — islands, the land side of a bay).
+  // Fully deterministic: no coastline side-test, no flood, no seeds. ──
+  void cellOf;
   const water = new Uint8Array(N * N);
-  const comp = new Int32Array(N * N).fill(-1);
-  let nc = 0;
-  for (let start = 0; start < N * N; start++) {
-    if (raw[start] === 0 || comp[start] !== -1) continue;
-    // BFS this component
-    const cells: number[] = [start];
-    comp[start] = nc;
-    let touchesBorder = false;
-    let hasPoly = false;
-    for (let qi = 0; qi < cells.length; qi++) {
-      const i = cells[qi]!;
-      const cx = i % N, cy = (i / N) | 0;
-      if (cx === 0 || cy === 0 || cx === N - 1 || cy === N - 1) touchesBorder = true;
-      if (polyCell[i]) hasPoly = true;
-      const nb = [cx + 1 < N ? i + 1 : -1, cx - 1 >= 0 ? i - 1 : -1, cy + 1 < N ? i + N : -1, cy - 1 >= 0 ? i - N : -1];
-      for (const j of nb) if (j >= 0 && raw[j] === 1 && comp[j] === -1) { comp[j] = nc; cells.push(j); }
+  const fillPoly = (poly: number[], val: number): void => {
+    let minY = 1e9, maxY = -1e9;
+    for (let k = 1; k < poly.length; k += 2) { minY = Math.min(minY, poly[k]!); maxY = Math.max(maxY, poly[k]!); }
+    const r0 = Math.max(0, Math.floor((minY + HALF) / cellW));
+    const r1 = Math.min(N - 1, Math.ceil((maxY + HALF) / cellW));
+    for (let r = r0; r <= r1; r++) {
+      const y = -HALF + (r + 0.5) * cellW;
+      const xs: number[] = [];
+      for (let k = 0, j = poly.length - 2; k < poly.length; j = k, k += 2) {
+        const yi = poly[k + 1]!, yj = poly[j + 1]!;
+        if ((yi > y) !== (yj > y)) xs.push(poly[k]! + ((poly[j]! - poly[k]!) * (y - yi)) / (yj - yi));
+      }
+      xs.sort((a, b) => a - b);
+      for (let m = 0; m + 1 < xs.length; m += 2) {
+        const c0 = Math.max(0, Math.ceil((xs[m]! + HALF) / cellW - 0.5));
+        const c1 = Math.min(N - 1, Math.floor((xs[m + 1]! + HALF) / cellW - 0.5));
+        for (let c = c0; c <= c1; c++) water[r * N + c] = val;
+      }
     }
-    if (touchesBorder || hasPoly || cells.length > (N * N) / 40) for (const i of cells) water[i] = 1;
-    nc++;
-  }
+  };
+  for (const p of waterOuter) fillPoly(p, 1); // water areas
+  for (const p of waterInner) fillPoly(p, 0); // land holes inside them
 
   // bake final masks
   const bits = new Uint8Array(N * N);
@@ -306,7 +334,7 @@ function build(cfg: CityCfg): void {
   const path = `src/data/cities/${cfg.key}.json`;
   writeFileSync(path, JSON.stringify(bundle));
   const kb = (JSON.stringify(bundle).length / 1024) | 0;
-  console.log(`${cfg.key}: ${outRoads.length} roads, ${coastSegs.length} coast segs, ${waterPolys.length} water polys, ${parkPolys.length} parks → ${path} (${kb} KB)`);
+  console.log(`${cfg.key}: ${outRoads.length} roads, ${ocean.outers.length} sea polys, ${waterOuter.length} water outers / ${waterInner.length} holes, ${parkPolys.length} parks → ${path} (${kb} KB)`);
 }
 
 // Ramer–Douglas–Peucker

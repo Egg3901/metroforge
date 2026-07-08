@@ -74,7 +74,8 @@ export const CITY_PRESETS: CityPreset[] = [
   {
     key: 'chicago',
     label: 'Chicago',
-    blurb: 'Strict N-S grid with the lake hard along the east edge.',
+    real: true,
+    blurb: 'Real Chicago: the grid, Lake Michigan, and the branching river (OSM).',
     grid: { weight: 1.6, angleDeg: 0, rigid: true, noiseWeight: 0.05 },
     radialWeight: 1.6,
     water: { coast: true, coastAngleDeg: 0, coastInset: 0.82, river: true },
@@ -111,7 +112,8 @@ export const CITY_PRESETS: CityPreset[] = [
   {
     key: 'cleveland',
     label: 'Cleveland',
-    blurb: 'Lakefront grid split by a winding river valley.',
+    real: true,
+    blurb: 'Real Cleveland: Lake Erie and the winding Cuyahoga through the Flats (OSM).',
     grid: { weight: 1.3, angleDeg: 8, rigid: true, noiseWeight: 0.1 },
     radialWeight: 1.8,
     water: { coast: true, coastAngleDeg: 0, coastInset: 0.8, river: true },
