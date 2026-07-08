@@ -25,11 +25,14 @@ const TOOLS: { id: Tool; label: string; key: string; icon: (p: { size?: number }
 ];
 
 function HintCard(): React.JSX.Element | null {
+  const tutorialActive = useStore((s) => s.tutorialActive);
   const tool = useStore((s) => s.tool);
   const mode = useStore((s) => s.mode);
   const trackFrom = useStore((s) => s.trackFrom);
   const trackCostEstimate = useStore((s) => s.trackCostEstimate);
   const routeStops = useStore((s) => s.routeStops);
+  // the tutorial coach owns the copy while it's active
+  if (tutorialActive) return null;
   if (tool === 'station') {
     return (
       <div className="text-xs text-zinc-400 leading-relaxed">

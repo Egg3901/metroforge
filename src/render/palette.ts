@@ -35,10 +35,10 @@ export const PALETTE = {
   building: [48, 50, 51] as RGB,
   buildingDense: [58, 60, 55] as RGB,
 
-  // ── roads — clearly lighter than the building fabric so streets read ──
-  roadLocal: 0x6b7166,
-  roadCollector: 0x7f857a,
-  roadArterial: 0x969c8e,
+  // ── roads — muted, clearly lighter than fabric but never competing with lines ──
+  roadLocal: 0x4a4f4c,
+  roadCollector: 0x5c625c,
+  roadArterial: 0x6e756e,
   roadCasing: 0x0d0f12,
 
   // ── transit (the hero — bright, saturated) ──

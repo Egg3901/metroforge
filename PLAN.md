@@ -134,7 +134,13 @@ alone.
 
 ---
 
-## Phase 4 — Game-feel & onboarding (polish that sells it) ⬜
+## Phase 4 — Game-feel & onboarding (polish that sells it) 🟡
+
+> Shipped: **guided first-city tutorial** (5 interactive steps to first
+> ridership, auto tool/overlay, skip + replay from Home), **typography**
+> (Fraunces display + DM Sans UI/map labels), **muted road hierarchy**, and
+> **parallel corridor bundling** when lines share a track. Remaining: audio,
+> day/night tint, shareable network card export.
 
 **Goal:** answer "graphics still feel half-assed" fully, and stop first-run drop.
 
@@ -146,7 +152,7 @@ alone.
   rendering, station glyphs by mode/level, label typography, day/night tint.
 - **Shareable output.** One-click "my network" screenshot/card export.
 
-**Files:** new `app/tutorial.tsx`, `render/*`, `app/audio.ts`, `render/palette.ts`.
+**Files:** `app/tutorial.ts`, `app/TutorialCard.tsx`, `render/*`, `app/audio.ts`, `render/palette.ts`.
 
 ---
 

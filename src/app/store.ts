@@ -6,6 +6,7 @@ import { GOALS, completedGoalIds } from './goals';
 import type { Scenario } from './scenarios';
 import { loadStars, recordStars, starsForProgress, type StarMap } from '@content/campaign';
 import { loadAccount, submitScore, type Account } from './api';
+import { loadTutorialDone, markTutorialDone, TUTORIAL_STEPS } from './tutorial';
 
 export type Tool = 'select' | 'station' | 'track' | 'route' | 'bulldoze';
 export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic' | 'unserved';
@@ -46,6 +47,11 @@ interface AppState {
   /** signed-in account (for leaderboards), or null */
   account: Account | null;
   setAccount: (a: Account | null) => void;
+  /** guided first-city tutorial */
+  tutorialActive: boolean;
+  tutorialStep: number;
+  advanceTutorial: () => void;
+  skipTutorial: () => void;
 
   setTool: (t: Tool) => void;
   setMode: (m: TransitMode) => void;
@@ -132,6 +138,25 @@ export const useStore = create<AppState>((set, get) => {
     runStars: 0,
     account: loadAccount(),
     setAccount: (account) => set({ account }),
+    tutorialActive: false,
+    tutorialStep: 0,
+    advanceTutorial: () => {
+      const { tutorialStep, tutorialActive } = get();
+      if (!tutorialActive) return;
+      const next = tutorialStep + 1;
+      if (next >= TUTORIAL_STEPS.length) {
+        markTutorialDone();
+        set({ tutorialActive: false, tutorialStep: 0, overlay: 'none', tool: 'select' });
+        get().pushToast('Tutorial complete — keep building', 'good');
+        return;
+      }
+      set({ tutorialStep: next });
+    },
+    skipTutorial: () => {
+      markTutorialDone();
+      set({ tutorialActive: false, tutorialStep: 0, overlay: 'none' });
+      get().pushToast('Tutorial skipped — reopen anytime from Home', 'info');
+    },
 
     setTool: (tool) => set({ tool, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
     setMode: (mode) => set({ mode, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
@@ -142,11 +167,35 @@ export const useStore = create<AppState>((set, get) => {
     setUi: (ui) => set({ ui }),
     start: (seed, difficulty, opts) => {
       client.init(seed, difficulty, opts);
-      set({ started: true, completedGoals: [], scenario: null, won: false, runStars: 0 });
+      const teach = !loadTutorialDone();
+      set({
+        started: true,
+        completedGoals: [],
+        scenario: null,
+        won: false,
+        runStars: 0,
+        tutorialActive: teach,
+        tutorialStep: 0,
+        overlay: teach ? 'density' : 'none',
+        tool: 'select',
+        mode: 'bus',
+      });
     },
     startScenario: (s, seed) => {
       client.init(seed, s.difficulty, { size: s.size, presetKey: s.cityKey });
-      set({ started: true, completedGoals: [], scenario: s, won: false, runStars: 0 });
+      const teach = !loadTutorialDone();
+      set({
+        started: true,
+        completedGoals: [],
+        scenario: s,
+        won: false,
+        runStars: 0,
+        tutorialActive: teach,
+        tutorialStep: 0,
+        overlay: teach ? 'density' : 'none',
+        tool: 'select',
+        mode: 'bus',
+      });
     },
     pushToast: (message, tone) => {
       const id = toastId++;

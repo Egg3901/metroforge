@@ -12,6 +12,8 @@ import { isUnlocked, starsToUnlock, totalStars } from '@content/campaign';
 import { MAX_STARS } from '@content/scenarioRegistry';
 import { authenticate, fetchLeaderboard, signOut, type LeaderEntry } from './api';
 import { useStore } from './store';
+import { TutorialCard } from './TutorialCard';
+import { clearTutorialDone, loadTutorialDone } from './tutorial';
 
 const randomSeed = (): number => Math.floor(Math.random() * 1e9);
 const seedFrom = (s: string): number => {
@@ -24,9 +26,14 @@ const DIFF_TONE: Record<string, string> = { easy: 'text-emerald-400', normal: 't
 function Toasts(): React.JSX.Element {
   const toasts = useStore((s) => s.toasts);
   const dismiss = useStore((s) => s.dismissToast);
+  const tutorialActive = useStore((s) => s.tutorialActive);
   const tone = { info: 'border-zinc-600', warn: 'border-red-500', good: 'border-emerald-500' };
+  // sit above the tutorial coach card when it's on screen
+  const pos = tutorialActive
+    ? 'absolute top-14 right-2 md:right-4'
+    : 'absolute bottom-28 md:bottom-4 right-2 md:right-4';
   return (
-    <div className="absolute bottom-28 md:bottom-4 right-2 md:right-4 flex flex-col gap-2 z-30 max-w-[85vw] md:max-w-sm">
+    <div className={`${pos} flex flex-col gap-2 z-30 max-w-[85vw] md:max-w-sm`}>
       {toasts.map((t) => (
         <button
           key={t.id}
@@ -240,7 +247,7 @@ function NewGameScreen(): React.JSX.Element {
         <div className="flex flex-col items-center text-center mb-7">
           <Logo size={64} />
           <div className="mt-3"><Wordmark size={30} /></div>
-          <p className="text-zinc-400 text-sm mt-2">{TAGLINE}</p>
+          <p className="text-zinc-400 text-sm mt-2 font-sans">{TAGLINE}</p>
         </div>
 
         <div className="flex gap-1 p-1 bg-zinc-900/70 rounded-xl mb-4">
@@ -258,10 +265,23 @@ function NewGameScreen(): React.JSX.Element {
           <button
             onClick={() => {
               const json = localStorage.getItem('metroforge:save:auto');
-              if (json) { client.loadSave(json); useStore.setState({ started: true }); }
+              if (json) {
+                client.loadSave(json);
+                useStore.setState({ started: true, tutorialActive: false, tutorialStep: 0 });
+              }
             }}
             className="mt-4 w-full py-2.5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-300 text-sm">
             Continue last save
+          </button>
+        )}
+        {loadTutorialDone() && (
+          <button
+            onClick={() => {
+              clearTutorialDone();
+              useStore.getState().pushToast('Tutorial will start on your next city', 'info');
+            }}
+            className="mt-2 w-full py-2 rounded-xl text-zinc-500 hover:text-zinc-300 text-xs transition-colors">
+            Replay the first-city lesson
           </button>
         )}
         <p className="text-[11px] text-zinc-600 text-center mt-auto pt-6">
@@ -348,6 +368,7 @@ export function App(): React.JSX.Element {
       {started && panel === 'goals' && <GoalsPanel />}
       {started && panel === 'routes' && <RoutesPanel />}
       <Toasts />
+      {started && <TutorialCard />}
       {started && won && <WinOverlay />}
       {!started && <NewGameScreen />}
       {bankrupt && (

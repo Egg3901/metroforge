@@ -4,6 +4,19 @@ All notable changes to MetroForge are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/); this project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Guided first-city tutorial.** Five interactive steps (density → stations →
+  track → route → first riders) with auto tool/overlay selection, skip, and
+  replay from the home screen. (`app/tutorial.ts`, `app/TutorialCard.tsx`)
+- **Typography.** Fraunces display + DM Sans for UI and map labels.
+- **Parallel corridor bundling.** Shared track corridors offset so overlapping
+  lines read as distinct ribbons.
+
+### Changed
+- Muted road hierarchy so the transit network stays the visual hero.
+
 ## [1.1.0] - 2026-07-08
 
 Real cities and a batch of live-feedback fixes (tracked as GitHub issues #1–#10).

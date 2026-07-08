@@ -859,6 +859,39 @@ export class GameRenderer {
     }
   }
 
+  /** Offset a polyline perpendicular to itself (for parallel corridor bundling). */
+  private offsetPolyline(pts: number[], dist: number): number[] {
+    if (pts.length < 4 || Math.abs(dist) < 0.5) return pts.slice();
+    const n = pts.length / 2;
+    const out: number[] = new Array(pts.length);
+    for (let i = 0; i < n; i++) {
+      const x = pts[i * 2] as number;
+      const y = pts[i * 2 + 1] as number;
+      let dx: number;
+      let dy: number;
+      if (i === 0) {
+        dx = (pts[2] as number) - x;
+        dy = (pts[3] as number) - y;
+      } else if (i === n - 1) {
+        dx = x - (pts[(i - 1) * 2] as number);
+        dy = y - (pts[(i - 1) * 2 + 1] as number);
+      } else {
+        dx = (pts[(i + 1) * 2] as number) - (pts[(i - 1) * 2] as number);
+        dy = (pts[(i + 1) * 2 + 1] as number) - (pts[(i - 1) * 2 + 1] as number);
+      }
+      const len = Math.hypot(dx, dy) || 1;
+      // left-hand normal
+      out[i * 2] = x + (-dy / len) * dist;
+      out[i * 2 + 1] = y + (dx / len) * dist;
+    }
+    // pin endpoints to the original so lines still meet at stations
+    out[0] = pts[0] as number;
+    out[1] = pts[1] as number;
+    out[out.length - 2] = pts[pts.length - 2] as number;
+    out[out.length - 1] = pts[pts.length - 1] as number;
+    return out;
+  }
+
   private drawRoutes(): void {
     const ui = this.ui;
     const g = this.routesG;
@@ -874,6 +907,19 @@ export class GameRenderer {
       for (let i = t.points.length - 2; i >= 0; i -= 2) rev.push(t.points[i] as number, t.points[i + 1] as number);
       trackByPair.set(`${t.toStationId}:${t.fromStationId}`, rev);
     }
+    // how many routes share each undirected station pair → parallel offsets
+    const pairUsers = new Map<string, number[]>();
+    for (let ri = 0; ri < ui.routes.length; ri++) {
+      const r = ui.routes[ri]!;
+      for (let i = 0; i + 1 < r.stationIds.length; i++) {
+        const a = r.stationIds[i] as number;
+        const b = r.stationIds[i + 1] as number;
+        const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+        const list = pairUsers.get(key) ?? [];
+        if (!list.includes(ri)) list.push(ri);
+        pairUsers.set(key, list);
+      }
+    }
     const strokePath = (path: number[], w: number, color: number | string, alpha: number): void => {
       g.moveTo(path[0] as number, path[1] as number);
       for (let i = 2; i < path.length; i += 2) g.lineTo(path[i] as number, path[i + 1] as number);
@@ -882,21 +928,31 @@ export class GameRenderer {
     // global busiest segment, so ribbon thickness reads relative across lines
     let maxSegLoad = 1;
     for (const r of ui.routes) for (const l of r.segmentLoads ?? []) if (l > maxSegLoad) maxSegLoad = l;
+    const BUNDLE_GAP = 14; // world meters between parallel ribbons
     this.routePaths = [];
-    for (const r of ui.routes) {
+    for (let ri = 0; ri < ui.routes.length; ri++) {
+      const r = ui.routes[ri]!;
       const path: number[] = [];
       const segPaths: { pts: number[]; load: number }[] = [];
       for (let i = 0; i + 1 < r.stationIds.length; i++) {
         const a = r.stationIds[i] as number;
         const b = r.stationIds[i + 1] as number;
         const seg = trackByPair.get(`${a}:${b}`);
-        const segPts: number[] = [];
+        let segPts: number[] = [];
         if (seg && seg.length >= 4) {
           for (let j = 0; j < seg.length; j += 2) segPts.push(seg[j] as number, seg[j + 1] as number);
         } else {
           const sa = stationById.get(a);
           const sb = stationById.get(b);
           if (sa && sb) segPts.push(sa.x, sa.y, sb.x, sb.y);
+        }
+        // parallel-offset when several lines share this corridor
+        const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+        const users = pairUsers.get(key) ?? [ri];
+        if (users.length > 1 && segPts.length >= 4) {
+          const slot = users.indexOf(ri);
+          const offset = (slot - (users.length - 1) / 2) * BUNDLE_GAP;
+          segPts = this.offsetPolyline(segPts, offset);
         }
         if (segPts.length >= 4) {
           if (path.length === 0) path.push(segPts[0] as number, segPts[1] as number);
@@ -905,14 +961,14 @@ export class GameRenderer {
         }
       }
       if (path.length < 4) continue;
-      // hero treatment: soft glow → dark casing
-      strokePath(path, 44, r.color, 0.08);
-      strokePath(path, 28, r.color, 0.16);
-      strokePath(path, 22, PAL.void, 0.9);
+      // hero treatment: soft glow → dark casing → bright core
+      strokePath(path, 48, r.color, 0.07);
+      strokePath(path, 30, r.color, 0.14);
+      strokePath(path, 20, PAL.void, 0.92);
       // bright core, per segment, widening with how many people ride that link
       for (const sp of segPaths) {
         const t = Math.min(1, sp.load / maxSegLoad);
-        strokePath(sp.pts, 8 + t * 10, r.color, 1);
+        strokePath(sp.pts, 7 + t * 11, r.color, 1);
       }
       // arc-length table for animated passenger-flow motes (drawn per-frame)
       const cum: number[] = [0];
@@ -958,7 +1014,7 @@ export class GameRenderer {
       const t = new Text({
         text: L.name,
         style: {
-          fontFamily: 'system-ui, sans-serif',
+          fontFamily: 'DM Sans, system-ui, sans-serif',
           fontStyle: L.kind === 'water' ? 'italic' : 'normal',
           fontWeight: L.kind === 'road' ? '500' : '600',
           fontSize: base,
@@ -1012,7 +1068,7 @@ export class GameRenderer {
 
       const label = new Text({
         text: s.name,
-        style: { fontFamily: 'system-ui, sans-serif', fontWeight: '600', fontSize: 64, fill: PAL.labelText, stroke: { color: PAL.labelHalo, width: 10 } },
+        style: { fontFamily: 'DM Sans, system-ui, sans-serif', fontWeight: '600', fontSize: 64, fill: PAL.labelText, stroke: { color: PAL.labelHalo, width: 10 } },
       });
       label.anchor.set(0.5, 0);
       label.x = s.x;
