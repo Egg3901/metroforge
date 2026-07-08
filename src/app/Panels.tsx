@@ -1,5 +1,6 @@
 import { MODES } from '@core/constants';
 import { useStore } from './store';
+import { GOALS } from './goals';
 
 const fmt = (v: number): string => (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${(v / 1e3).toFixed(1)}K`);
 
@@ -31,6 +32,37 @@ function PanelShell({ title, children }: { title: string; children: React.ReactN
         {children}
       </div>
     </div>
+  );
+}
+
+export function GoalsPanel(): React.JSX.Element | null {
+  const ui = useStore((s) => s.ui);
+  const completed = useStore((s) => s.completedGoals);
+  if (!ui) return null;
+  const doneCount = completed.length;
+  return (
+    <PanelShell title={`Objectives · ${doneCount}/${GOALS.length}`}>
+      <div className="space-y-2.5">
+        {GOALS.map((g) => {
+          const p = Math.max(0, Math.min(1, g.progress(ui)));
+          const done = p >= 1;
+          const r = g.readout(ui);
+          return (
+            <div key={g.id} className={`rounded-lg border p-2.5 ${done ? 'border-emerald-600/60 bg-emerald-950/30' : 'border-zinc-800 bg-zinc-900/40'}`}>
+              <div className="flex items-center gap-2">
+                <span className={`grid place-items-center w-4 h-4 rounded-full text-[10px] ${done ? 'bg-emerald-500 text-zinc-950' : 'border border-zinc-600 text-transparent'}`}>✓</span>
+                <span className={`text-sm font-medium ${done ? 'text-emerald-300' : 'text-zinc-100'}`}>{g.label}</span>
+                <span className="ml-auto text-[11px] tabular-nums text-zinc-400">{r.value} / {r.target}</span>
+              </div>
+              <div className="text-[11px] text-zinc-500 mt-0.5 mb-1.5 pl-6">{g.hint}</div>
+              <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                <div className={`h-full rounded-full ${done ? 'bg-emerald-500' : 'bg-sky-500'}`} style={{ width: `${p * 100}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </PanelShell>
   );
 }
 

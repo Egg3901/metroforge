@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { GameCanvas } from './GameCanvas';
 import { HUD } from './HUD';
 import { Toolbar } from './Toolbar';
-import { BudgetPanel, RoutePanel, StationPanel } from './Panels';
+import { BudgetPanel, GoalsPanel, RoutePanel, StationPanel } from './Panels';
 import { CITY_PRESETS } from '@core/city/presets';
 import type { MapSize } from '@core/city/presets';
 import { useStore } from './store';
@@ -149,6 +149,7 @@ export function App(): React.JSX.Element {
       {started && panel === 'station' && <StationPanel />}
       {started && panel === 'route' && <RoutePanel />}
       {started && panel === 'budget' && <BudgetPanel />}
+      {started && panel === 'goals' && <GoalsPanel />}
       <Toasts />
       {!started && <NewGameScreen />}
       {bankrupt && (

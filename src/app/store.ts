@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { TransitMode } from '@core/types';
 import type { UiState } from '@host/protocol';
 import { SimClient } from '@host/client';
+import { GOALS, completedGoalIds } from './goals';
 
 export type Tool = 'select' | 'station' | 'track' | 'route' | 'bulldoze';
 export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic';
@@ -28,8 +29,10 @@ interface AppState {
   selectedStationId: number | null;
   selectedRouteId: number | null;
   toasts: Toast[];
-  panel: 'none' | 'budget' | 'station' | 'route';
+  panel: 'none' | 'budget' | 'station' | 'route' | 'goals';
   overlay: OverlayMode;
+  /** ids of completed progression goals */
+  completedGoals: string[];
 
   setTool: (t: Tool) => void;
   setMode: (m: TransitMode) => void;
@@ -49,7 +52,22 @@ let toastId = 1;
 export const useStore = create<AppState>((set, get) => {
   const client = new SimClient();
 
-  client.events.onUi = (ui) => set({ ui });
+  client.events.onUi = (ui) => {
+    // celebrate any newly-completed goals
+    const prev = get().completedGoals;
+    const done = completedGoalIds(ui);
+    if (done.length > prev.length) {
+      for (const id of done) {
+        if (!prev.includes(id)) {
+          const g = GOALS.find((x) => x.id === id);
+          if (g) get().pushToast(`Goal complete — ${g.label}`, 'good');
+        }
+      }
+      set({ ui, completedGoals: done });
+    } else {
+      set({ ui });
+    }
+  };
   client.events.onToast = (message, tone) => get().pushToast(message, tone);
   client.events.onSaved = (json) => {
     localStorage.setItem('metroforge:save:auto', json);
@@ -72,6 +90,7 @@ export const useStore = create<AppState>((set, get) => {
     toasts: [],
     panel: 'none',
     overlay: 'none',
+    completedGoals: [],
 
     setTool: (tool) => set({ tool, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
     setMode: (mode) => set({ mode, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
@@ -82,7 +101,7 @@ export const useStore = create<AppState>((set, get) => {
     setUi: (ui) => set({ ui }),
     start: (seed, difficulty, opts) => {
       client.init(seed, difficulty, opts);
-      set({ started: true });
+      set({ started: true, completedGoals: [] });
     },
     pushToast: (message, tone) => {
       const id = toastId++;

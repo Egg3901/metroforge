@@ -60,6 +60,10 @@ async function main(): Promise<void> {
     console.log('demo:', built);
     await page.waitForTimeout(2500);
   }
+  if (process.argv.includes('goals')) {
+    await page.getByRole('button', { name: 'Objectives' }).click().catch(() => {});
+    await page.waitForTimeout(800);
+  }
 
   await page.screenshot({ path: `grader/shot-${preset}-overview.png` });
 

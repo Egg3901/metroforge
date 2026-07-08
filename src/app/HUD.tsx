@@ -1,5 +1,6 @@
 import { TICKS_PER_DAY } from '@core/constants';
 import { CoinsIcon, PeopleIcon, PinIcon, ShareIcon, ThumbIcon } from './icons';
+import { GOALS } from './goals';
 import { useStore } from './store';
 import type { OverlayMode } from './store';
 
@@ -58,6 +59,8 @@ export function HUD(): React.JSX.Element | null {
   const overlay = useStore((s) => s.overlay);
   const setOverlay = useStore((s) => s.setOverlay);
   const client = useStore((s) => s.client);
+  const completedGoals = useStore((s) => s.completedGoals.length);
+  const totalGoals = GOALS.length;
   if (!ui) return null;
 
   const cashColor = ui.cash < 0 ? 'text-red-400' : ui.cash < 500_000 ? 'text-amber-400' : 'text-emerald-400';
@@ -114,6 +117,15 @@ export function HUD(): React.JSX.Element | null {
               </button>
             ))}
           </div>
+          <button
+            onClick={() => setPanel('goals')}
+            title="Objectives"
+            aria-label="Objectives"
+            className="mr-2 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-300 hover:text-zinc-100 flex items-center gap-1.5"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="0.6" fill="currentColor"/></svg>
+            <span className="tabular-nums">{completedGoals}/{totalGoals}</span>
+          </button>
           <div className="flex rounded-lg overflow-hidden border border-zinc-800">
             {[0, 1, 10, 60].map((s) => (
               <button
