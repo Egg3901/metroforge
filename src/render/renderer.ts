@@ -6,13 +6,9 @@
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import type { FieldsPayload, FrameSnapshot, StaticCity, TrafficPayload, UiState } from '@host/protocol';
 import type { TransitMode } from '@core/types';
+import { PALETTE as PAL, MODE_COLOR, mix } from './palette';
 
-const MODE_STATION_COLOR: Record<TransitMode, number> = {
-  bus: 0xe8b84a,
-  tram: 0x5cc8f0,
-  metro: 0xf0716f,
-  rail: 0x8ce38f,
-};
+const MODE_STATION_COLOR: Record<TransitMode, number> = MODE_COLOR;
 
 export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic';
 
@@ -71,7 +67,7 @@ export class GameRenderer {
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
       resizeTo: host,
-      background: 0x0c0c10,
+      background: PAL.void,
       antialias: true,
       preference: 'webgl',
       resolution: Math.min(window.devicePixelRatio || 1, 2),
@@ -495,66 +491,25 @@ export class GameRenderer {
         const wxw = city.originX + (px / PX) * city.cellSize;
         const wyw = city.originY + (py / PX) * city.cellSize;
         const wf = hiWater ? sampleMask(hiWater, wxw, wyw) : bil(wsm, fx, fy); // 0..1 water
-        const elev = bil(f.terrain, fx, fy);
         let r: number, g: number, b: number;
         if (wf > 0.5) {
-          // water: shallow near the 0.5 shoreline, deeper further out
-          const shore = Math.max(0, 1 - (wf - 0.5) / 0.3);
-          const depth = Math.max(0, Math.min(1, 1 - elev / 0.25));
-          r = 20 + shore * 16;
-          g = 46 + shore * 24 - depth * 8;
-          b = 74 + shore * 26 - depth * 10;
+          // elegant flat water: a touch lighter right at the shore, deep beyond.
+          const shallow = Math.max(0, Math.min(1, 1 - (wf - 0.5) / 0.22));
+          const col = mix(PAL.waterDeep, PAL.waterShallow, shallow);
+          r = col[0]; g = col[1]; b = col[2];
         } else {
           const park = hiPark ? sampleMask(hiPark, wxw, wyw) : bil(f.parks, fx, fy);
           const pop = bil(f.population, fx, fy) / maxPop;
-          const urban = Math.sqrt(Math.max(0, pop));
-          const v = (hash(cx, cy) - 0.5) * 10;
-          // natural land: grass greens, drier on high ground
-          r = 38 + elev * 26 + v;
-          g = 70 + elev * 12 + v;
-          b = 38 + elev * 8 + v;
-          if (urban < 0.25 && hash(cx * 3 + 7, cy * 3 + 11) > 0.55) {
-            r -= 14;
-            g -= 8;
-            b -= 10;
-            // tree canopy texture: per-pixel clumps
-            const tree = hash(px * 2 + 13, py * 2 + 29);
-            if (tree > 0.5) {
-              const dk = (tree - 0.5) * 34;
-              r -= dk;
-              g -= dk * 0.55;
-              b -= dk;
-            }
-          } else if (urban > 0.3) {
-            // city grain: fine speckle so the fabric isn't flat
-            const grain = (hash(px * 3 + 41, py * 3 + 57) - 0.5) * 16 * urban;
-            r += grain;
-            g += grain;
-            b += grain;
-          }
-          // beach band just above the shoreline
-          if (wf > 0.28 && elev < 0.3) {
-            const t = (wf - 0.28) / 0.22;
-            r = r * (1 - t) + (118 + v) * t;
-            g = g * (1 - t) + (106 + v) * t;
-            b = b * (1 - t) + (76 + v) * t;
-          }
-          // urban fabric blend
-          const ur = 96 + elev * 10;
-          const ug = 88 + elev * 10;
-          const ub = 74 + elev * 8;
-          r = r * (1 - urban) + ur * urban;
-          g = g * (1 - urban) + ug * urban;
-          b = b * (1 - urban) + ub * urban;
-          // park overlay (smooth-edged)
-          if (park > 0.25) {
-            const t = Math.min(1, (park - 0.25) / 0.5);
-            const tree = hash(px * 2 + 91, py * 2 + 17);
-            const dk = tree > 0.55 ? (tree - 0.55) * 30 : 0;
-            r = r * (1 - t) + (44 + v - dk) * t;
-            g = g * (1 - t) + (78 + v - dk * 0.5) * t;
-            b = b * (1 - t) + (48 + v - dk) * t;
-          }
+          const urban = Math.sqrt(Math.max(0, pop)); // downtown reads as a lighter mass
+          // land: deep neutral, lifting toward a warm urban tone with density.
+          let col = mix(PAL.land, PAL.landUrban, Math.min(1, urban));
+          // park space (smooth-edged, crisp for real cities)
+          if (park > 0.2) col = mix(col, PAL.park, Math.min(1, (park - 0.2) / 0.5));
+          // a thin luminous shoreline just landward of the water edge
+          if (wf > 0.34) col = mix(col, PAL.shoreLine, Math.min(1, (wf - 0.34) / 0.16) * 0.5);
+          // whisper of grain so large flats don't band (no realism clutter)
+          const grain = (hash(cx, cy) - 0.5) * 3;
+          r = col[0] + grain; g = col[1] + grain; b = col[2] + grain;
         }
         const o = (py * W * PX + px) * 4;
         data[o] = r;
@@ -595,11 +550,11 @@ export class GameRenderer {
       lg.moveTo(pts[0] as number, pts[1] as number);
       for (let i = 2; i < pts.length; i += 2) lg.lineTo(pts[i] as number, pts[i + 1] as number);
     }
-    lg.stroke({ width: 13 * rs, color: 0x7f7d74, cap: 'round' });
+    lg.stroke({ width: 13 * rs, color: PAL.roadLocal, cap: 'round' });
 
     const classes: { cls: string; casing: number; fill: number; casingColor: number; fillColor: number }[] = [
-      { cls: 'collector', casing: 30, fill: 20, casingColor: 0x2b2a26, fillColor: 0x807e76 },
-      { cls: 'arterial', casing: 54, fill: 40, casingColor: 0x2b2a26, fillColor: 0x9a988e },
+      { cls: 'collector', casing: 30, fill: 20, casingColor: PAL.roadCasing, fillColor: PAL.roadCollector },
+      { cls: 'arterial', casing: 54, fill: 40, casingColor: PAL.roadCasing, fillColor: PAL.roadArterial },
     ];
     for (const spec of classes) {
       for (const pass of ['casing', 'fill'] as const) {
@@ -634,9 +589,10 @@ export class GameRenderer {
       h = Math.imul(h ^ (h >>> 13), 1274126177);
       return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
     };
-    const housePalette = [0x5c554a, 0x665e50, 0x554e44, 0x6d6456, 0x60584c];
-    const towerPalette = [0x686d78, 0x717682, 0x5e636e, 0x7b808c];
-    const aptPalette = [0x8a6754, 0x7d5c4c, 0x93705c, 0x84624f];
+    // muted, desaturated building fabric that sits quietly on the dark canvas
+    const housePalette = [0x3b3f3a, 0x41453d, 0x373b37, 0x45493f, 0x3d413a];
+    const towerPalette = [0x474d55, 0x50565f, 0x434952, 0x565c66];
+    const aptPalette = [0x4a463e, 0x433f38, 0x4f4a41, 0x454037];
     const f = this.fieldsPayload;
     // ── Road clearance: keep building footprints off the carriageway. Each road
     // class carries a keep-out radius (half its drawn width + a footpath margin).
@@ -781,7 +737,7 @@ export class GameRenderer {
           ];
           if (shadow) {
             g.poly(quad(5, 7));
-            g.fill({ color: 0x0c0c10, alpha: 0.3 });
+            g.fill({ color: 0x000000, alpha: 0.22 });
           }
           g.poly(quad(0, 0));
           g.fill({ color: pal[(r * pal.length) | 0] ?? 0x5c554a });
