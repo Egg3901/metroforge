@@ -75,7 +75,12 @@ updateApproval), `transit/assignment.ts` (crowding penalty), `app/Panels.tsx`,
 
 ---
 
-## Phase 2 — Show players why (legibility & diagnostics) ⬜
+## Phase 2 — Show players why (legibility & diagnostics) 🟡
+
+> Shipped: the **unserved-demand ("Gaps") overlay** (desire lines for OD pairs
+> that drive because transit fails them, from `carFlows`/low-share pairs) and
+> **per-station board/alight** (StationPanel splits boarding vs arriving).
+> Remaining: per-link segment load, trip inspector, "why did it change" cues.
 
 **Goal:** make the sim readable so building next is reading, not guessing.
 
