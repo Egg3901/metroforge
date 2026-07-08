@@ -7,20 +7,29 @@ function PanelShell({ title, children }: { title: string; children: React.ReactN
   const setPanel = useStore((s) => s.setPanel);
   const select = useStore((s) => s.select);
   return (
-    <div className="absolute right-0 top-12 bottom-0 w-80 bg-zinc-900/95 backdrop-blur border-l border-zinc-800 p-4 z-10 overflow-y-auto text-sm">
-      <div className="flex justify-between items-center mb-3">
-        <h2 className="font-semibold text-zinc-100">{title}</h2>
-        <button
-          className="text-zinc-500 hover:text-zinc-200"
-          onClick={() => {
-            setPanel('none');
-            select(null, null);
-          }}
-        >
-          ✕
-        </button>
+    <div
+      className="absolute z-20 bg-zinc-950/95 backdrop-blur-md border-zinc-800/80 text-sm overflow-y-auto
+        max-md:inset-x-0 max-md:bottom-0 max-md:max-h-[55%] max-md:rounded-t-2xl max-md:border-t max-md:pb-[env(safe-area-inset-bottom)]
+        md:right-3 md:top-14 md:bottom-3 md:w-80 md:rounded-xl md:border"
+    >
+      <div className="md:hidden flex justify-center pt-2">
+        <div className="w-9 h-1 rounded-full bg-zinc-700" />
       </div>
-      {children}
+      <div className="p-4">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="font-semibold text-zinc-100">{title}</h2>
+          <button
+            className="w-7 h-7 grid place-items-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800"
+            onClick={() => {
+              setPanel('none');
+              select(null, null);
+            }}
+          >
+            ✕
+          </button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }

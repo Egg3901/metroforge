@@ -64,7 +64,7 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
     }
   }
 
-  // ── Road network: radial arterials from CBD + ring roads + collectors ──
+  // ── Road network: radial arterials + rings + per-neighborhood street grids ──
   const roads: RoadEdge[] = [];
   let roadId = 1;
   const arterialCount = rng.int(6, 9);
@@ -91,7 +91,7 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
 
   for (let k = 0; k < arterialCount; k++) {
     const angle = (k / arterialCount) * Math.PI * 2 + rng.range(-0.15, 0.15);
-    const pts = march(cbd, angle, rng.range(HALF * 0.75, HALF * 0.95), 0.06, 220);
+    const pts = march(cbd, angle, rng.range(HALF * 0.75, HALF * 0.95), 0.02, 260);
     if (pts.length < 4) continue;
     roads.push({ id: roadId++, cls: 'arterial', polyline: makePolyline(pts) });
     arterialEnds.push(pts[pts.length - 1] as Vec2);
@@ -140,7 +140,7 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
       start = vec(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
     }
     const branchAngle = rng.range(0, Math.PI * 2);
-    const pts = march(start, branchAngle, rng.range(600, 1800), 0.12, 160);
+    const pts = march(start, branchAngle, rng.range(600, 1800), 0.03, 200);
     if (pts.length >= 3) roads.push({ id: roadId++, cls: 'collector', polyline: makePolyline(pts) });
   }
 
@@ -205,6 +205,72 @@ export function generateCity(seed: number, difficulty: Difficulty): GeneratedCit
   for (let i = 0; i < rawPop.length; i++) {
     fields.population[i] = ((rawPop[i] as number) / rawPopSum) * target;
     fields.jobs[i] = ((rawJobs[i] as number) / rawJobsSum) * jobsTarget;
+  }
+
+  // ── Local street grids: patchwork of oriented grids where people live ──
+  // Each 1 km neighborhood gets a grid orientation (snapped noise) and a
+  // spacing tied to density; streets form real blocks instead of squiggles.
+  {
+    const HOOD = 1000; // meters
+    const meanCellPop = target / (fields.w * fields.h);
+    const densityAt = (p: Vec2): number => {
+      const i = cellIndexAt(fields, p);
+      return (fields.water[i] as number) === 1 ? -1 : (fields.population[i] as number) / meanCellPop;
+    };
+    for (let hy = -HALF; hy < HALF; hy += HOOD) {
+      for (let hx = -HALF; hx < HALF; hx += HOOD) {
+        const center = vec(hx + HOOD / 2, hy + HOOD / 2);
+        // neighborhood density gate: average over a few probes
+        let dens = 0;
+        for (const [ox, oy] of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75], [0.5, 0.5]] as const) {
+          dens += Math.max(0, densityAt(vec(hx + ox * HOOD, hy + oy * HOOD)));
+        }
+        dens /= 5;
+        if (dens < 0.5) continue;
+        // orientation: smooth noise snapped to 15° so neighboring hoods line up
+        const rawTheta = detailNoise.at(center.x / 4200 + 200, center.y / 4200 + 200) * Math.PI;
+        const theta = Math.round(rawTheta / (Math.PI / 12)) * (Math.PI / 12);
+        const cosT = Math.cos(theta);
+        const sinT = Math.sin(theta);
+        const spacing = dens > 2.5 ? 95 : dens > 1.2 ? 120 : 155;
+        const R = HOOD * 0.75; // cover the hood incl. rotation overhang
+        for (const dir of [0, 1] as const) {
+          // dir 0: lines along (cosT,sinT); dir 1: perpendicular
+          const ux = dir === 0 ? cosT : -sinT;
+          const uy = dir === 0 ? sinT : cosT;
+          const vx = dir === 0 ? -sinT : cosT;
+          const vy = dir === 0 ? cosT : sinT;
+          for (let off = -R; off <= R; off += spacing) {
+            // walk the line, emitting runs that stay on land and populated ground
+            let run: Vec2[] = [];
+            const flush = (): void => {
+              // runs are straight — store endpoints only
+              if (run.length >= 2) {
+                const a = run[0] as Vec2;
+                const b = run[run.length - 1] as Vec2;
+                roads.push({
+                  id: roadId++,
+                  cls: 'local',
+                  polyline: makePolyline([vec(Math.round(a.x), Math.round(a.y)), vec(Math.round(b.x), Math.round(b.y))]),
+                });
+              }
+              run = [];
+            };
+            const STEP = 55;
+            for (let t = -R; t <= R; t += STEP) {
+              const p = vec(center.x + vx * off + ux * t, center.y + vy * off + uy * t);
+              const inHood = p.x >= hx - 20 && p.x < hx + HOOD + 20 && p.y >= hy - 20 && p.y < hy + HOOD + 20;
+              if (inHood && Math.abs(p.x) < HALF * 0.98 && Math.abs(p.y) < HALF * 0.98 && densityAt(p) > 0.35) {
+                run.push(p);
+              } else {
+                flush();
+              }
+            }
+            flush();
+          }
+        }
+      }
+    }
   }
 
   // ── Land value: CBD proximity + waterfront premium + noise; NIMBY from wealth ──

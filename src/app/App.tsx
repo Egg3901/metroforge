@@ -10,7 +10,7 @@ function Toasts(): React.JSX.Element {
   const dismiss = useStore((s) => s.dismissToast);
   const tone = { info: 'border-zinc-600', warn: 'border-red-500', good: 'border-emerald-500' };
   return (
-    <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-30 max-w-sm">
+    <div className="absolute bottom-28 md:bottom-4 right-2 md:right-4 flex flex-col gap-2 z-30 max-w-[85vw] md:max-w-sm">
       {toasts.map((t) => (
         <button
           key={t.id}
@@ -32,7 +32,7 @@ function NewGameScreen(): React.JSX.Element {
   const hasSave = localStorage.getItem('metroforge:save:auto') !== null;
   return (
     <div className="absolute inset-0 z-40 bg-zinc-950 flex items-center justify-center">
-      <div className="w-96 space-y-5">
+      <div className="w-full max-w-sm px-5 space-y-5">
         <div>
           <h1 className="text-3xl font-bold text-zinc-100 tracking-tight">MetroForge</h1>
           <p className="text-zinc-400 text-sm mt-1">Paint a transit network onto a living, growing city.</p>

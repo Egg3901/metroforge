@@ -33,6 +33,8 @@ export class GameRenderer {
   private world = new Container();
   private groundSprite: Sprite | null = null;
   private roadsG = new Graphics();
+  private localRoadsG = new Graphics();
+  private buildingsG = new Graphics();
   private tracksG = new Graphics();
   private routesG = new Graphics();
   private stationsG = new Graphics();
@@ -65,7 +67,7 @@ export class GameRenderer {
       preference: 'webgl',
     });
     host.appendChild(this.app.canvas);
-    this.world.addChild(this.roadsG, this.tracksG, this.routesG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
+    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.tracksG, this.routesG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
     this.app.stage.addChild(this.world);
     this.attachInput(this.app.canvas);
     this.app.ticker.add(() => this.tick());
@@ -135,41 +137,75 @@ export class GameRenderer {
   // ── input ──────────────────────────────────────────────────────────────────
 
   private attachInput(canvas: HTMLCanvasElement): void {
+    canvas.style.touchAction = 'none'; // we own all gestures
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    // multi-pointer tracking: 1 pointer = pan/click, 2 pointers = pinch zoom
+    const pointers = new Map<number, { x: number; y: number }>();
+    let pinchDist = 0;
+
+    const clampCam = (): void => {
+      const half = (this.city?.worldSize ?? 12000) / 2;
+      this.cx = Math.max(-half, Math.min(half, this.cx));
+      this.cy = Math.max(-half, Math.min(half, this.cy));
+    };
+
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.button === 2 || e.button === 1) {
+      canvas.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) {
         this.dragging = true;
+        this.pointerDownAt = { x: e.clientX, y: e.clientY };
+        this.lastPointer = { x: e.clientX, y: e.clientY };
+      } else if (pointers.size === 2) {
+        this.dragging = false; // switch to pinch
+        const [a, b] = [...pointers.values()];
+        pinchDist = Math.hypot(b!.x - a!.x, b!.y - a!.y);
       }
-      this.pointerDownAt = { x: e.clientX, y: e.clientY };
-      this.lastPointer = { x: e.clientX, y: e.clientY };
-      if (e.button === 0) this.dragging = true; // left-drag pans too; click detected on up
     });
     canvas.addEventListener('pointermove', (e) => {
       const rect = canvas.getBoundingClientRect();
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        const distNow = Math.hypot(b!.x - a!.x, b!.y - a!.y);
+        const midX = (a!.x + b!.x) / 2 - rect.left;
+        const midY = (a!.y + b!.y) / 2 - rect.top;
+        if (pinchDist > 0 && distNow > 0) {
+          const before = this.screenToWorld(midX, midY);
+          this.scale = Math.max(0.03, Math.min(2.5, this.scale * (distNow / pinchDist)));
+          const after = this.screenToWorld(midX, midY);
+          this.cx += before.x - after.x;
+          this.cy += before.y - after.y;
+          clampCam();
+        }
+        pinchDist = distNow;
+        return;
+      }
       const w = this.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       this.callbacks.onHoverWorld?.(w.x, w.y);
       if (this.dragging) {
         this.cx -= (e.clientX - this.lastPointer.x) / this.scale;
         this.cy -= (e.clientY - this.lastPointer.y) / this.scale;
-        const half = (this.city?.worldSize ?? 12000) / 2;
-        this.cx = Math.max(-half, Math.min(half, this.cx));
-        this.cy = Math.max(-half, Math.min(half, this.cy));
+        clampCam();
       }
       this.lastPointer = { x: e.clientX, y: e.clientY };
     });
-    canvas.addEventListener('pointerup', (e) => {
+    const endPointer = (e: PointerEvent): void => {
+      const wasPinching = pointers.size >= 2;
+      pointers.delete(e.pointerId);
       this.dragging = false;
+      pinchDist = 0;
+      if (wasPinching) return; // no click at the end of a pinch
       const moved = Math.hypot(e.clientX - this.pointerDownAt.x, e.clientY - this.pointerDownAt.y);
-      if (moved < 5) {
+      if (e.type === 'pointerup' && moved < 8) {
         const rect = canvas.getBoundingClientRect();
         const w = this.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-        if (e.button === 0) this.callbacks.onClickWorld?.(w.x, w.y, e.shiftKey);
-        else if (e.button === 2) this.callbacks.onRightClick?.();
+        if (e.button === 2) this.callbacks.onRightClick?.();
+        else this.callbacks.onClickWorld?.(w.x, w.y, e.shiftKey);
       }
-    });
-    canvas.addEventListener('pointerleave', () => {
-      this.dragging = false;
-    });
+    };
+    canvas.addEventListener('pointerup', endPointer);
+    canvas.addEventListener('pointercancel', endPointer);
     canvas.addEventListener(
       'wheel',
       (e) => {
@@ -214,24 +250,27 @@ export class GameRenderer {
           const pop = (f.population[i] as number) / maxPop; // 0..1
           const lv = Math.min(1, (f.landValue[i] as number) / 2);
           // base ground: dark warm gray, slightly lighter with elevation
-          r = 24 + elev * 14;
-          g = 24 + elev * 13;
-          b = 26 + elev * 10;
-          // population glow: warm amber density
-          r += pop * 95;
-          g += pop * 62;
-          b += pop * 18;
+          r = 26 + elev * 16;
+          g = 26 + elev * 15;
+          b = 28 + elev * 12;
+          // population: warm urban-fabric lift — reads as the city footprint zoomed out
+          const p2 = Math.sqrt(pop);
+          r += p2 * 88;
+          g += p2 * 64;
+          b += p2 * 30;
           // land value: faint cool sheen
-          b += lv * 18;
+          b += lv * 12;
         }
         ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
         ctx.fillRect(cx * PX, cy * PX, PX, PX);
       }
     }
-    // soften cell edges
-    ctx.filter = 'blur(2px)';
+    // soften cell edges lightly
+    ctx.filter = 'blur(1px)';
+    ctx.globalAlpha = 0.7;
     ctx.drawImage(canvas, 0, 0);
     ctx.filter = 'none';
+    ctx.globalAlpha = 1;
 
     const tex = Texture.from(canvas);
     if (this.groundSprite) {
@@ -252,17 +291,93 @@ export class GameRenderer {
     if (!city) return;
     const g = this.roadsG;
     g.clear();
+    const lg = this.localRoadsG;
+    lg.clear();
+    // local streets: single dark pass on their own layer (LOD-faded in tick)
     for (const road of city.roads) {
+      if (road.cls !== 'local') continue;
       const pts = road.points;
       if (pts.length < 4) continue;
-      g.moveTo(pts[0] as number, pts[1] as number);
-      for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i] as number, pts[i + 1] as number);
-      g.stroke({
-        width: road.cls === 'arterial' ? 42 : 22,
-        color: road.cls === 'arterial' ? 0x3a3a42 : 0x30303a,
-        cap: 'round',
-        join: 'round',
-      });
+      lg.moveTo(pts[0] as number, pts[1] as number);
+      for (let i = 2; i < pts.length; i += 2) lg.lineTo(pts[i] as number, pts[i + 1] as number);
+    }
+    lg.stroke({ width: 12, color: 0x17171b, cap: 'round' });
+
+    const classes: { cls: string; casing: number; fill: number; casingColor: number; fillColor: number }[] = [
+      { cls: 'collector', casing: 30, fill: 20, casingColor: 0x131317, fillColor: 0x4a4a54 },
+      { cls: 'arterial', casing: 54, fill: 40, casingColor: 0x131317, fillColor: 0x5c5c68 },
+    ];
+    for (const spec of classes) {
+      for (const pass of ['casing', 'fill'] as const) {
+        const width = pass === 'casing' ? spec.casing : spec.fill;
+        for (const road of city.roads) {
+          if (road.cls !== spec.cls) continue;
+          const pts = road.points;
+          if (pts.length < 4) continue;
+          g.moveTo(pts[0] as number, pts[1] as number);
+          for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i] as number, pts[i + 1] as number);
+        }
+        g.stroke({
+          width,
+          color: pass === 'casing' ? spec.casingColor : spec.fillColor,
+          cap: 'round',
+          join: 'round',
+        });
+      }
+    }
+    this.drawBuildings();
+  }
+
+  /** Building fabric: deterministic rectangles along local streets. Presentation only. */
+  private drawBuildings(): void {
+    const city = this.city;
+    if (!city) return;
+    const g = this.buildingsG;
+    g.clear();
+    // cheap coordinate hash → stable pseudo-random per lot
+    const hash = (x: number, y: number): number => {
+      let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0;
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+    };
+    const palette = [0x4f4a41, 0x575147, 0x49443c, 0x5d564b, 0x524c43];
+    for (const road of city.roads) {
+      if (road.cls !== 'local') continue;
+      const pts = road.points;
+      if (pts.length < 4) continue;
+      const ax = pts[0] as number;
+      const ay = pts[1] as number;
+      const bx = pts[pts.length - 2] as number;
+      const by = pts[pts.length - 1] as number;
+      const len = Math.hypot(bx - ax, by - ay);
+      if (len < 40) continue;
+      const ux = (bx - ax) / len;
+      const uy = (by - ay) / len;
+      const nx = -uy;
+      const ny = ux;
+      for (let d = 22; d < len - 22; d += 34) {
+        const px = ax + ux * d;
+        const py = ay + uy * d;
+        for (const side of [-1, 1]) {
+          const r = hash(px * side, py + side);
+          if (r < 0.25) continue; // vacant lots
+          const setback = 16 + r * 8;
+          const w = 14 + ((r * 7919) % 1) * 12; // along street
+          const h = 12 + ((r * 104729) % 1) * 16; // depth
+          const cxp = px + nx * side * (setback + h / 2);
+          const cyp = py + ny * side * (setback + h / 2);
+          // axis-aligned to the street: draw as rotated quad
+          const hw = w / 2;
+          const hh = h / 2;
+          g.poly([
+            cxp - ux * hw - nx * hh, cyp - uy * hw - ny * hh,
+            cxp + ux * hw - nx * hh, cyp + uy * hw - ny * hh,
+            cxp + ux * hw + nx * hh, cyp + uy * hw + ny * hh,
+            cxp - ux * hw + nx * hh, cyp - uy * hw + ny * hh,
+          ]);
+          g.fill({ color: palette[(r * 5) | 0] ?? 0x3a3630 });
+        }
+      }
     }
   }
 
@@ -302,9 +417,12 @@ export class GameRenderer {
         if (s) pts.push({ x: s.x, y: s.y + offset });
       }
       if (pts.length < 2) return;
-      g.moveTo((pts[0] as { x: number }).x, (pts[0] as { y: number }).y);
-      for (let i = 1; i < pts.length; i++) g.lineTo((pts[i] as { x: number }).x, (pts[i] as { y: number }).y);
-      g.stroke({ width: 20, color: r.color, alpha: 0.95, cap: 'round', join: 'round' });
+      for (const pass of ['casing', 'line'] as const) {
+        g.moveTo((pts[0] as { x: number }).x, (pts[0] as { y: number }).y);
+        for (let i = 1; i < pts.length; i++) g.lineTo((pts[i] as { x: number }).x, (pts[i] as { y: number }).y);
+        if (pass === 'casing') g.stroke({ width: 30, color: 0x0c0c10, alpha: 0.8, cap: 'round', join: 'round' });
+        else g.stroke({ width: 18, color: r.color, alpha: 1, cap: 'round', join: 'round' });
+      }
     });
   }
 
@@ -329,8 +447,8 @@ export class GameRenderer {
         }
         g.poly(hex);
       }
-      g.fill({ color: 0x101014 });
-      g.stroke({ width: 12, color });
+      g.fill({ color: 0xf4f4f5 });
+      g.stroke({ width: 14, color });
 
       const label = new Text({
         text: s.name,
@@ -354,6 +472,12 @@ export class GameRenderer {
       this.app.screen.height / 2 - this.cy * this.scale,
     );
     this.labels.visible = this.scale > 0.12;
+    // LOD: local streets & buildings fade in as you zoom toward street level
+    const lodT = Math.max(0, Math.min(1, (this.scale - 0.13) / 0.12));
+    this.localRoadsG.visible = lodT > 0;
+    this.localRoadsG.alpha = lodT;
+    this.buildingsG.visible = lodT > 0;
+    this.buildingsG.alpha = lodT * 0.95;
 
     // vehicles
     const vg = this.vehiclesG;
