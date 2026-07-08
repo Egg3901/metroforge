@@ -70,6 +70,13 @@ async function main(): Promise<void> {
     await page.getByRole('button', { name: 'Lines' }).click().catch(() => {});
     await page.waitForTimeout(800);
   }
+  if (process.argv.includes('routepanel')) {
+    // open Lines, then click a line row (named "Bus 2") to reveal the RoutePanel
+    await page.getByRole('button', { name: 'Lines' }).click().catch(() => {});
+    await page.waitForTimeout(500);
+    await page.getByRole('button', { name: /Bus 2/ }).first().click().catch(() => {});
+    await page.waitForTimeout(800);
+  }
 
   await page.screenshot({ path: `grader/shot-${preset}-overview.png` });
 

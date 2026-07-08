@@ -3,7 +3,7 @@
  * call applyCommand. Validation lives here so every client (web, future
  * native) enforces identical rules.
  */
-import { MODES, REFUND_FRACTION, ROUTE_COLORS, WATER_CROSSING_MULT } from './constants';
+import { MAX_HEADWAY, MODES, REFUND_FRACTION, ROUTE_COLORS, WATER_CROSSING_MULT } from './constants';
 import { isWaterAt } from './fields';
 import { findRoadPath, nearestRoadPoint } from './transit/roadGraph';
 import { dist, makePolyline } from './geometry';
@@ -158,6 +158,9 @@ export function applyCommand(state: GameState, cmd: Command): CommandResult {
         vehicleCount: 0,
         dailyRidership: 0,
         dailyRevenue: 0,
+        capacity: 0,
+        load: 0,
+        crowding: 0,
       });
       // starter fleet: 2 vehicles if affordable, so new routes run immediately
       const starterCost = 2 * cfg.vehicleCost;
@@ -167,6 +170,8 @@ export function applyCommand(state: GameState, cmd: Command): CommandResult {
         route.vehicleCount = 2;
         syncVehicles(state, id);
       }
+      // headway follows the fleet (2 vehicles → a real frequency; 0 → MAX)
+      state.routes[state.routes.length - 1]!.headwaySeconds = deriveHeadway(state, id);
       state.demandDirty = true;
       return { ok: true, createdId: id };
     }
@@ -175,7 +180,6 @@ export function applyCommand(state: GameState, cmd: Command): CommandResult {
       const route = state.routes.find((r) => r.id === cmd.routeId);
       if (!route) return { ok: false, error: 'Route not found' };
       const cfg = MODES[route.mode];
-      if (cmd.headwaySeconds !== undefined) route.headwaySeconds = Math.max(cfg.minHeadway, cmd.headwaySeconds);
       if (cmd.fare !== undefined) route.fare = Math.min(10, Math.max(0, cmd.fare));
       if (cmd.name !== undefined) route.name = cmd.name;
       if (cmd.color !== undefined) route.color = cmd.color;
@@ -192,6 +196,10 @@ export function applyCommand(state: GameState, cmd: Command): CommandResult {
         route.vehicleCount = target;
         syncVehicles(state, route.id);
       }
+      // Frequency is derived from the fleet, never set directly — buying
+      // vehicles is the only way to run more often. (cmd.headwaySeconds is
+      // ignored; kept in the command type for back-compat.)
+      route.headwaySeconds = deriveHeadway(state, route.id);
       state.demandDirty = true;
       return { ok: true };
     }
@@ -300,4 +308,28 @@ export function routePathLength(state: GameState, routeId: number): number {
     if (seg) oneWay += seg.polyline.length;
   }
   return oneWay * 2;
+}
+
+/** Seconds for one vehicle to complete a full out-and-back cycle: travel time
+ *  plus a dwell at every stop it passes (each intermediate stop twice). */
+export function routeCycleSeconds(state: GameState, routeId: number): number {
+  const route = state.routes.find((r) => r.id === routeId);
+  if (!route) return 0;
+  const cfg = MODES[route.mode];
+  const len = routePathLength(state, routeId);
+  if (len <= 0) return 0;
+  const dwellStops = 2 * Math.max(1, route.stationIds.length - 1);
+  return len / cfg.speed + dwellStops * cfg.dwellSeconds;
+}
+
+/** Headway is a CONSEQUENCE of fleet size: more vehicles on the same loop come
+ *  more often. This is the coupling that makes buying vehicles matter. */
+export function deriveHeadway(state: GameState, routeId: number): number {
+  const route = state.routes.find((r) => r.id === routeId);
+  if (!route) return MAX_HEADWAY;
+  const cfg = MODES[route.mode];
+  if (route.vehicleCount <= 0) return MAX_HEADWAY;
+  const cycle = routeCycleSeconds(state, routeId);
+  if (cycle <= 0) return cfg.defaultHeadway;
+  return Math.max(cfg.minHeadway, Math.min(MAX_HEADWAY, cycle / route.vehicleCount));
 }

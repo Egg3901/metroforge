@@ -7,7 +7,7 @@
  * Output: FlowResult[] — every derived stat (ridership, revenue, crowding)
  * comes from these flows, never from visual agents.
  */
-import { MODES, TRANSFER_PENALTY_MIN, WALK_SPEED } from '../constants';
+import { CROWD_KNEE, CROWD_PENALTY_MIN, MODES, TRANSFER_PENALTY_MIN, WALK_SPEED } from '../constants';
 import { dist } from '../geometry';
 import { eventDemandMult } from '../events';
 import type { District, FlowResult, GameState, RouteDef, Station } from '../types';
@@ -67,13 +67,18 @@ function buildGraph(stations: Station[], routes: RouteDef[]): AssignmentGraph {
     if (r.vehicleCount === 0) continue;
     const cfg = MODES[r.mode];
     const waitMin = r.headwaySeconds / 2 / 60;
+    // crowding discomfort from the PREVIOUS assignment's load (lagged, stable):
+    // an over-capacity line is less attractive, so riders divert to alternates
+    // or the car until it settles.
+    const crowdMin = Math.max(0, (r.crowding || 0) - CROWD_KNEE) * CROWD_PENALTY_MIN;
     // board / alight
     for (const sid of r.stationIds) {
       const street = streetNodeOf.get(sid);
       const rn = routeNode.get(`${sid}:${r.id}`);
       if (street === undefined || rn === undefined) continue;
-      // boarding cost carries the transfer penalty; one penalty refunded at the end
-      edges[street]!.push({ to: rn, cost: waitMin + TRANSFER_PENALTY_MIN, routeId: r.id });
+      // boarding cost carries the transfer penalty + crowding discomfort; one
+      // transfer penalty is refunded at the end (first boarding isn't a transfer)
+      edges[street]!.push({ to: rn, cost: waitMin + TRANSFER_PENALTY_MIN + crowdMin, routeId: r.id });
       edges[rn]!.push({ to: street, cost: 0.1, routeId: -1 });
     }
     // ride edges (both directions — vehicles run out-and-back)

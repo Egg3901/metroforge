@@ -7,8 +7,10 @@ import {
   BANKRUPTCY_FLOOR,
   BANKRUPTCY_GRACE_DAYS,
   BASE_DAILY_SUBSIDY,
+  CROWD_APPROVAL_THRESHOLD,
   GROWTH_INTERVAL_DAYS,
   MODES,
+  PEAK_HOUR_FRACTION,
   TICKS_PER_DAY,
 } from './constants';
 import { cellCenter } from './fields';
@@ -98,14 +100,9 @@ function moveVehicles(state: GameState): void {
       }
       if (v.dwellRemaining > 0) break;
     }
-    // occupancy from flows: route trips per day spread over vehicle-trips per day
-    if (route.vehicleCount > 0 && route.dailyRidership > 0) {
-      const roundTripsPerDay = (TICKS_PER_DAY * cfg.speed) / Math.max(1, v.pathLength);
-      const tripsPerVehicleDay = route.dailyRidership / route.vehicleCount / Math.max(0.5, roundTripsPerDay);
-      v.occupancy = Math.min(1.5, tripsPerVehicleDay / cfg.vehicleCapacity);
-    } else {
-      v.occupancy = 0;
-    }
+    // occupancy tracks the route's crowding (peak load / capacity), so a packed
+    // line's vehicles read full and an over-served line's read empty
+    v.occupancy = route.vehicleCount > 0 ? Math.min(1.5, route.crowding || 0) : 0;
   }
 }
 
@@ -145,6 +142,11 @@ export function refreshAssignment(state: GameState): void {
   for (const r of state.routes) {
     r.dailyRidership = result.routeRidership.get(r.id) ?? 0;
     r.dailyRevenue = result.routeRevenue.get(r.id) ?? 0;
+    // peak-hour capacity vs load → crowding (feeds next assignment's penalty)
+    const cfg = MODES[r.mode];
+    r.capacity = r.vehicleCount > 0 ? (cfg.vehicleCapacity * 3600) / r.headwaySeconds : 0;
+    r.load = r.dailyRidership * PEAK_HOUR_FRACTION;
+    r.crowding = r.capacity > 0 ? r.load / r.capacity : r.load > 0 ? 2 : 0;
   }
   for (const s of state.stations) {
     // rolling blend so numbers move smoothly
@@ -207,8 +209,20 @@ function runDailyEconomy(state: GameState, _day: number, events: TickEvents): vo
 
 function updateApproval(state: GameState): void {
   const s = state.stats;
+  // ridership-weighted overcrowding drag: packed lines annoy the riders who use
+  // them most, so the hit scales with how many people ride an over-capacity line
+  let crowdRiders = 0;
+  let totalRiders = 0;
+  for (const r of state.routes) {
+    totalRiders += r.dailyRidership;
+    if (r.crowding > CROWD_APPROVAL_THRESHOLD) crowdRiders += r.dailyRidership * (r.crowding - CROWD_APPROVAL_THRESHOLD);
+  }
+  const crowdDrag = totalRiders > 0 ? Math.min(20, (crowdRiders / totalRiders) * 40) : 0;
   // drift toward a target driven by coverage + transit share, plus event mood
-  const target = Math.min(100, Math.max(0, 25 + s.coverage * 90 + s.transitShare * 60 + eventApprovalDelta(state.activeEvents) * 2));
+  const target = Math.min(
+    100,
+    Math.max(0, 25 + s.coverage * 90 + s.transitShare * 60 + eventApprovalDelta(state.activeEvents) * 2 - crowdDrag),
+  );
   s.approval += (target - s.approval) * 0.08;
   s.approval = Math.max(0, Math.min(100, s.approval));
 }

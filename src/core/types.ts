@@ -86,6 +86,12 @@ export interface RouteDef {
   /** derived, from assignment */
   dailyRidership: number;
   dailyRevenue: number;
+  /** peak-hour capacity, pax/hour/direction (derived from fleet + headway) */
+  capacity: number;
+  /** peak-hour load, pax/hour (derived from ridership) */
+  load: number;
+  /** load / capacity; >1 is over capacity. Feeds the crowding penalty (lagged). */
+  crowding: number;
 }
 
 export interface VehicleState {

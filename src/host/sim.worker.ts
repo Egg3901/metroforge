@@ -114,6 +114,9 @@ function buildUi(s: GameState): UiState {
         dailyRidership: r.dailyRidership,
         dailyRevenue: r.dailyRevenue,
         lengthMeters: path ? path.length / 2 : 0,
+        capacity: r.capacity ?? 0,
+        load: r.load ?? 0,
+        crowding: r.crowding ?? 0,
       };
     }),
     activeEvents: s.activeEvents.map((a) => ({ id: a.id, name: EVENT_DEFS.find((e) => e.id === a.id)?.name ?? a.id, daysLeft: a.daysLeft })),

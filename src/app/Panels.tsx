@@ -4,6 +4,24 @@ import { GOALS } from './goals';
 
 const fmt = (v: number): string => (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${(v / 1e3).toFixed(1)}K`);
 
+/** A vehicle every Xm Ys, from headway seconds. */
+function fmtHeadway(sec: number): string {
+  if (!sec || sec >= 1800) return 'rarely';
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return m > 0 ? `every ${m}m${s ? ` ${s}s` : ''}` : `every ${s}s`;
+}
+
+/** Crowding → label + color, keyed to the sim's CROWD_KNEE (0.8) / over-capacity (1.0). */
+function crowdInfo(c: number): { label: string; color: string; pct: number } {
+  const pct = Math.min(1, c);
+  if (c >= 1) return { label: 'Overcrowded', color: '#ff453a', pct };
+  if (c >= 0.8) return { label: 'Crowded', color: '#ff9f0a', pct };
+  if (c >= 0.5) return { label: 'Busy', color: '#ffd60a', pct };
+  if (c > 0) return { label: 'Comfortable', color: '#30d158', pct };
+  return { label: 'No riders', color: '#48484a', pct: 0 };
+}
+
 function PanelShell({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
   const setPanel = useStore((s) => s.setPanel);
   const select = useStore((s) => s.select);
@@ -158,6 +176,11 @@ export function RoutesPanel(): React.JSX.Element | null {
                 <div className="text-xs font-mono text-zinc-200">{Math.round(r.dailyRidership).toLocaleString()}</div>
                 <div className="text-[11px] font-mono text-emerald-400/90">{fmt(r.dailyRevenue)}</div>
               </div>
+              <span
+                className="w-1.5 h-8 rounded-full shrink-0"
+                title={`${crowdInfo(r.crowding).label} · ${Math.round(r.crowding * 100)}%`}
+                style={{ background: crowdInfo(r.crowding).color }}
+              />
             </button>
           ))}
         </div>
@@ -197,9 +220,29 @@ export function RoutePanel(): React.JSX.Element | null {
             <div className="text-emerald-300 font-mono">{fmt(route.dailyRevenue)}/day</div>
           </div>
         </div>
+        {(() => {
+          const ci = crowdInfo(route.crowding);
+          return (
+            <div className="bg-zinc-800/60 rounded p-2 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-zinc-500">Crowding</span>
+                <span className="font-mono" style={{ color: ci.color }}>{ci.label} · {Math.round(route.crowding * 100)}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-zinc-700 overflow-hidden">
+                <div className="h-full rounded-full transition-all" style={{ width: `${ci.pct * 100}%`, background: ci.color }} />
+              </div>
+              <div className="text-[11px] text-zinc-500">
+                Peak {Math.round(route.load).toLocaleString()} / {Math.round(route.capacity).toLocaleString()} pax per hour
+              </div>
+            </div>
+          );
+        })()}
         <label className="block text-xs">
-          Vehicles: <span className="text-zinc-100">{route.vehicleCount}</span>
-          <span className="text-zinc-500"> ({fmt(cfg.vehicleCost)} each, {cfg.vehicleCapacity} pax)</span>
+          <div className="flex justify-between">
+            <span>Vehicles: <span className="text-zinc-100">{route.vehicleCount}</span></span>
+            <span className="text-sky-300/90">arrives {fmtHeadway(route.headwaySeconds)}</span>
+          </div>
+          <span className="text-zinc-500">{fmt(cfg.vehicleCost)} each, {cfg.vehicleCapacity} pax. More vehicles come more often.</span>
           <input
             type="range"
             min={0}

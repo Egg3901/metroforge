@@ -36,6 +36,9 @@ export interface UiRoute {
   dailyRidership: number;
   dailyRevenue: number;
   lengthMeters: number;
+  capacity: number;
+  load: number;
+  crowding: number;
 }
 
 export interface UiState {

@@ -121,6 +121,21 @@ export const MODES: Record<TransitMode, ModeConfig> = {
 
 export const TRANSFER_PENALTY_MIN = 5; // minutes of generalized cost per transfer
 export const WALK_SPEED = 1.35; // m/s
+
+// ── Frequency & capacity (Phase 1) ──────────────────────────────────────────
+/** Ceiling on derived headway so a single vehicle on a huge loop still shows a
+ *  finite (if terrible) service level rather than "never comes". */
+export const MAX_HEADWAY = 1800; // 30 min
+/** Share of daily ridership that rides in the single busiest hour. Used to turn
+ *  daily route ridership into a peak-hour load for the capacity check. */
+export const PEAK_HOUR_FRACTION = 0.14;
+/** Crowding = peakLoad / capacity. Below the knee it is comfortable; above it,
+ *  each unit of crowding adds discomfort minutes to the route's in-vehicle cost
+ *  (BPR-style), so overcrowded lines shed riders to alternates or the car. */
+export const CROWD_KNEE = 0.8;
+export const CROWD_PENALTY_MIN = 22; // minutes added per unit of crowding past the knee
+/** Sustained crowding above this drags approval down a little each day. */
+export const CROWD_APPROVAL_THRESHOLD = 1.1;
 /** Water crossing multiplies track cost (bridge/tube). */
 export const WATER_CROSSING_MULT = 5;
 /** Demolition refund fraction. */
