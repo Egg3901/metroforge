@@ -10,7 +10,12 @@ Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ---
 
-## Phase 1 — Make network decisions matter (simulation depth) 🟡
+## Phase 1 — Make network decisions matter (simulation depth) ✅
+
+> Shipped. Fleet→headway coupling (frequency derived from vehicle count),
+> real peak-hour capacity + lagged BPR crowding penalty feeding back into
+> assignment, overcrowding approval drag, and route/Lines UI (frequency
+> readout + crowding meter). Verified in-game and via the test suite.
 
 **Goal:** a well-run network must beat a sloppy one. Today the demand model
 (`src/core/transit/assignment.ts`) already does wait cost (headway/2), transfer
