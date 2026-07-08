@@ -3,7 +3,7 @@
  * only on change; per-frame work is vehicles, agents, ghost, and camera.
  * Reads snapshots only — never touches sim state.
  */
-import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
+import { Application, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import type { FieldsPayload, FrameSnapshot, StaticCity, TrafficPayload, UiState } from '@host/protocol';
 import type { TransitMode } from '@core/types';
 import { PALETTE as PAL, MODE_COLOR, mix } from './palette';
@@ -30,6 +30,8 @@ export class GameRenderer {
   private app = new Application();
   private world = new Container();
   private groundSprite: Sprite | null = null;
+  private detailSprite: TilingSprite | null = null;
+  private detailTex: Texture | null = null;
   private roadsG = new Graphics();
   private localRoadsG = new Graphics();
   private buildingsG = new Graphics();
@@ -399,7 +401,9 @@ export class GameRenderer {
   private bakeGround(f: FieldsPayload): void {
     const city = this.city;
     if (!city) return;
-    const PX = 14; // pixels per field cell in the baked texture
+    // pixels per field cell in the baked texture — as high as the 4096 texture
+    // limit allows, so the ground stays sharp when zoomed in
+    const PX = Math.min(34, Math.max(14, Math.floor(3900 / Math.max(city.fieldW, city.fieldH))));
     // real-city high-res masks give crisp coastlines/parks instead of the coarse,
     // box-blurred field grid. Bilinear over the 0/1 mask → smooth but sharp edges.
     const hiRes = city.maskRes ?? 0;
@@ -501,23 +505,22 @@ export class GameRenderer {
           const park = hiPark ? sampleMask(hiPark, wxw, wyw) : bil(f.parks, fx, fy);
           const pop = bil(f.population, fx, fy) / maxPop;
           const urban = Math.sqrt(Math.max(0, pop)); // downtown reads as a lighter mass
-          // land: deep neutral, lifting toward a warm urban tone with density.
+          // land: deep neutral, lifting a touch toward a warm urban tone with density.
           let col = mix(PAL.land, PAL.landUrban, Math.min(1, urban));
-          // real building fabric: a quiet lift off the land, denser downtown
-          if (hiBuilding && park < 0.2) {
-            const bf = sampleMask(hiBuilding, wxw, wyw);
-            if (bf > 0.12) col = mix(col, mix(PAL.building, PAL.buildingDense, Math.min(1, urban)), Math.min(1, bf) * 0.92);
+          // real building fabric — sharpened mask edge so blocks read crisply
+          if (hiBuilding && park < 0.35) {
+            const bfs = Math.max(0, Math.min(1, (sampleMask(hiBuilding, wxw, wyw) - 0.28) / 0.28));
+            if (bfs > 0) col = mix(col, mix(PAL.building, PAL.buildingDense, Math.min(1, urban)), bfs);
           }
-          // park space (smooth-edged, crisp for real cities)
-          if (park > 0.2) col = mix(col, PAL.park, Math.min(1, (park - 0.2) / 0.5));
+          // parks (crisp edge for real cities)
+          if (park > 0.15) col = mix(col, PAL.park, Math.max(0, Math.min(1, (park - 0.15) / 0.25)));
           // warm sand just landward of the water, then a thin luminous shore line
-          if (wf > 0.3 && wf <= 0.46) col = mix(col, PAL.sand, ((wf - 0.3) / 0.16) * 0.55);
-          if (wf > 0.42) col = mix(col, PAL.shoreLine, Math.min(1, (wf - 0.42) / 0.08) * 0.45);
-          // stylized surface texture: soft organic mottle on grass, finer grain in the city
-          const mottle = (hash(cx * 2 + 1, cy * 2 + 3) - 0.5) * 6 * (park > 0.2 ? 1.3 : 1 - urban * 0.5);
-          const grain = (hash(px, py) - 0.5) * (3 + urban * 3);
-          const tex = mottle + grain;
-          r = col[0] + tex; g = col[1] + tex * (park > 0.2 ? 1.15 : 1); b = col[2] + tex;
+          if (wf > 0.3 && wf <= 0.46) col = mix(col, PAL.sand, ((wf - 0.3) / 0.16) * 0.5);
+          if (wf > 0.42) col = mix(col, PAL.shoreLine, Math.min(1, (wf - 0.42) / 0.08) * 0.4);
+          // just a whisper of per-pixel grain so flats don't band; real detail
+          // comes from the crisp tiling texture overlay, not this bake
+          const grain = (hash(px, py) - 0.5) * 2.5;
+          r = col[0] + grain; g = col[1] + grain; b = col[2] + grain;
         }
         const o = (py * W * PX + px) * 4;
         data[o] = r;
@@ -540,6 +543,51 @@ export class GameRenderer {
     this.groundSprite.y = city.originY;
     this.groundSprite.width = city.fieldW * city.cellSize;
     this.groundSprite.height = city.fieldH * city.cellSize;
+    this.ensureDetail(city);
+  }
+
+  /** A fine, world-fixed tiling grain over the ground — real texture that stays
+   *  crisp at any zoom (unlike the baked sprite, which blurs when you zoom in). */
+  private ensureDetail(city: StaticCity): void {
+    if (!this.detailTex) {
+      const S = 256;
+      const cv = document.createElement('canvas');
+      cv.width = S; cv.height = S;
+      const ctx = cv.getContext('2d');
+      if (!ctx) return;
+      const img = ctx.createImageData(S, S);
+      const d = img.data;
+      const h = (x: number, y: number): number => {
+        let n = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0;
+        n = Math.imul(n ^ (n >>> 13), 1274126177);
+        return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+      };
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) {
+          const o = (y * S + x) * 4;
+          const v = h(x, y);
+          // sparse light + dark specks, mostly transparent → a stipple grain
+          if (v > 0.72) { d[o] = 210; d[o + 1] = 208; d[o + 2] = 196; d[o + 3] = Math.round((v - 0.72) * 130); }
+          else if (v < 0.24) { d[o] = 0; d[o + 1] = 0; d[o + 2] = 0; d[o + 3] = Math.round((0.24 - v) * 150); }
+          else { d[o + 3] = 0; }
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      this.detailTex = Texture.from(cv);
+    }
+    const w = city.fieldW * city.cellSize;
+    const hgt = city.fieldH * city.cellSize;
+    if (!this.detailSprite) {
+      this.detailSprite = new TilingSprite({ texture: this.detailTex, width: w, height: hgt });
+      this.detailSprite.tileScale.set(0.7); // 256px tile → ~180 world units (m)
+      this.detailSprite.alpha = 0.5;
+      const idx = this.groundSprite ? this.world.getChildIndex(this.groundSprite) + 1 : 1;
+      this.world.addChildAt(this.detailSprite, idx);
+    }
+    this.detailSprite.x = city.originX;
+    this.detailSprite.y = city.originY;
+    this.detailSprite.width = w;
+    this.detailSprite.height = hgt;
   }
 
   private drawRoads(): void {
