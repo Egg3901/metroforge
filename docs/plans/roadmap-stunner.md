@@ -10,13 +10,27 @@ real road networks, working sim core (OD-flow demand, mode choice, economy),
 traffic congestion overlay, in-game clock, headless screenshot QA
 (`scripts/shoot.ts`) and a generation grader (`scripts/grade.ts`).
 
-## Identity
+## Identity — Elegant Transit Canvas (chosen)
 
-We commit to the **Living City** direction (rich 2.5D), and we borrow the
-*discipline* of the Elegant Transit Canvas throughout: restrained palette, clean
-typography, readable line work, buttery motion. "Alive" is the north star;
-"tasteful" is the constraint. Every phase is verified against a screenshot, not
-vibes.
+We commit to the **Elegant Transit Canvas**: the real city (real OSM coastlines
+and streets) rendered as an *intentional, minimal, beautiful map* — think a
+gorgeous printed transit map meets Mini Metro's motion. **Not** photoreal, no
+extrusion, no faux-3D. The rules:
+
+- **Transit is the hero.** The street grid is muted and backgrounded; the network
+  you build — bold smooth colored lines, crisp interchange nodes, clean station
+  icons — is what pops.
+- **Restrained, cohesive palette.** A designed set of tokens (land / water / park
+  / road / line colors) replaces today's muddy tones. Flat, elegant, high-contrast
+  where it matters.
+- **Motion is signature, not busy.** Animated passenger flows along lines; buttery
+  camera; tasteful ambient life. Every moving thing earns its place.
+- **Typography matters.** Map labels (streets, districts, water, parks) make it
+  read as a designed object, not a diagram.
+
+Why A over a Living-City 2.5D: it plays to a 2D Pixi renderer instead of fighting
+it, is far harder to make ugly, ships faster, and is a sharper identity than a
+budget city-builder. Every phase is verified against a screenshot, not vibes.
 
 ## Guiding principles
 
@@ -31,39 +45,43 @@ vibes.
 
 ---
 
-## Track A — Graphics (the "stunner")
+## Track A — Graphics (Elegant Transit Canvas)
 
-### G1 · Real building footprints  ⟶ biggest single win
-Import OSM `building=*` polygons (same pipeline as roads/water). Replace the
-guessed squares in `renderer.ts drawBuildings` with real footprints, colored by
-land use (`building`, `amenity`, sampled jobs/pop). Bundle as a compact polygon
-list per city. **Effort: M.** Depends on: OSM pipeline (done).
+### A1 · Visual system & palette  ⟶ biggest immediate win
+Define a cohesive design-token palette (land / water / park / road / line / text)
+and re-skin the base map: clean flat land, elegant flat water with a crisp
+shoreline (the crisp OSM mask already supports this), muted **backgrounded** road
+network with a refined arterial→local weight hierarchy. This is what kills the
+"muddy / half-assed" look. **Effort: M.** Touches `renderer.ts` bakeGround +
+drawRoads. Depends on: nothing.
 
-### G2 · Faux-3D extrusion + sun shadows
-Extrude footprints by height (OSM `building:levels` / `height`, else land-use
-heuristic). Render as offset-and-fill prisms in Pixi with a single consistent
-light direction and soft drop shadows. Instant depth and "city." **Effort: M.**
-Depends on: G1.
+### A2 · Transit as hero
+Make the network beautiful: smooth rounded line geometry, colored casings +
+halos, clean parallel-offset bundling where lines share a corridor, crisp
+mode-distinct station icons, elegant interchange nodes. The thing you build should
+be the most beautiful thing on screen. **Effort: M.** Depends on: A1.
 
-### G3 · Day/night + lighting
-Drive a time-of-day cycle from the clock already in the HUD. Scene-wide ambient
-tint (dawn/day/dusk/night), building windows glow at night, warm street l+ cool
-shadow. This is the phase that makes it feel *alive*. **Effort: M.** Pixi color
-matrix / lighting layer. Depends on: G2.
+### A3 · Animated passenger flows
+The signature motion: elegant particles/dots flowing along active lines at a rate
+tied to real ridership from the OD model (data we already compute). Restrained,
+not busy. **Effort: M.** Depends on: A2 + flow data (done).
 
-### G4 · Materials
-Animated water shader (ripple + depth gradient + shoreline foam — replaces the
-flat navy), textured ground, park foliage, road surface + lane markings on
-arterials. **Effort: M–L.** Pixi custom filters (WebGL). Depends on: renderer.
+### A4 · Labels & typography (folds in #10)
+Zoom-gated map labels for streets, districts, water bodies, and parks; refined
+station labels; a considered type scale across the HUD/panels. Makes it read as a
+designed object. **Effort: M.** Needs water/park/street names (partly generated in
+`core/city/names.ts`; OSM names available for real cities).
 
-### G5 · Motion & FX
-Transit vehicles with headlights along routes; passenger-flow particles on busy
-links; bloom on lights, subtle vignette + grain post; smooth camera with a slight
-tilt/parallax for depth. **Effort: M.** Depends on: G2/G3.
+### A5 · Motion & polish
+Buttery camera (eased pan/zoom, momentum), smooth state transitions, tasteful
+ambient life (subtle water shimmer, gentle line pulse on load), a light vignette
+for focus, and a full consistency pass. **Effort: M.** Depends on: A1–A3.
 
-### G6 · UI/HUD system
-A cohesive visual system: type scale, iconography, panel styling, motion. Make
-the chrome feel as considered as the map. **Effort: M**, continuous.
+### A6 · Building treatment (restrained)
+Buildings as *flat, elegant* map fills, not 3D. Option 1: import real OSM
+`building=*` footprints and render as subtle tinted shapes. Option 2: refined
+density shading with no explicit buildings. Whichever reads cleaner without
+stealing focus from transit — decide by screenshot. **Effort: S–M.**
 
 ---
 
@@ -118,34 +136,32 @@ OSM cities (Chicago/LA/Atlanta/Cleveland next; pipeline is a bbox + a re-run).
 
 ---
 
-## Technical strategy: the Pixi ceiling
+## Technical strategy: 2D is the destination, not a stepping stone
 
-Push Pixi v8 (WebGL) through **G1–G5** — extrusion, shadows, lighting, day/night,
-water/material shaders, and motion all work in 2.5D without a 3D engine. The
-trigger to move to a real 3D renderer (Three.js / deck.gl / native) is when we
-want *true volumetric* buildings, a free-tilt camera, or agent counts a 2D scene
-graph can't hold. Defer that until we've hit the 2.5D ceiling. The deterministic,
-renderer-agnostic core (and the command-log determinism contract in
-`docs/ARCHITECTURE.md`) is exactly the bridge that makes it a renderer swap, not a
-rewrite.
+The Elegant Transit Canvas lives entirely in Pixi v8 (WebGL) — palette, crisp
+vector map, haloed transit lines, particle flows, labels, and eased camera are
+all 2D-native and cheap. There is **no** planned 3D/native rewrite for this
+direction; the renderer-agnostic core stays pure as good hygiene, but A does not
+require escaping Pixi. That's a feature: the whole visual target is reachable and
+performant on the current stack.
 
 ---
 
 ## Milestones (recommended interleave)
 
-**M1 — "It looks like a city"**: G1 + G2 + G3 (real buildings, shadows,
-day/night). The transformative visual milestone. Start here.
+**M1 — "An elegant map"**: A1 + A2 (visual system/palette + transit-as-hero). This
+is the transformative visual milestone and the fastest cure for the half-assed
+feel. Start here.
 
-**M2 — "It feels alive"**: G4 + G5 (materials, motion, FX) + G6 UI pass.
+**M2 — "Alive & designed"**: A3 + A4 + A5 (passenger flows, labels/typography,
+motion & polish) + A6 building treatment.
 
 **M3 — "It's a game"**: D1 + D3 + P1 + P2 (progression, real-city history
 scenarios, accounts, leaderboards).
 
-**Continuous**: more OSM cities, label rendering (#10), economy/depth tuning,
-generation cleanup.
+**Continuous**: more OSM cities, economy/depth tuning, generation cleanup.
 
 ## Open decisions
 1. Backend for P1/P2: managed vs self-hosted on the ops box.
-2. Building height source confidence (OSM levels coverage varies) — heuristic
-   fallback by land use.
-3. When to start the 3D/native track (proposed: after M2).
+2. A6 building treatment: real OSM footprints (flat) vs density shading — decide
+   by screenshot during M2.
