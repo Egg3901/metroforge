@@ -8,6 +8,8 @@ import type { MapSize } from '@core/city/presets';
 import { OSM_CITY_KEYS } from '@core/city/osmRegistry';
 import { Logo, Wordmark, TAGLINE } from './brand';
 import { SCENARIOS } from './scenarios';
+import { isUnlocked, starsToUnlock, totalStars } from '@content/campaign';
+import { MAX_STARS } from '@content/scenarioRegistry';
 import { authenticate, fetchLeaderboard, signOut, type LeaderEntry } from './api';
 import { useStore } from './store';
 
@@ -95,25 +97,65 @@ function FreePlay(): React.JSX.Element {
   );
 }
 
+function Stars({ earned, tone = 'text-amber-400' }: { earned: number; tone?: string }): React.JSX.Element {
+  return (
+    <span className="tracking-tight" title={`${earned} / 3 stars`}>
+      {[0, 1, 2].map((i) => (
+        <span key={i} className={i < earned ? tone : 'text-zinc-700'}>★</span>
+      ))}
+    </span>
+  );
+}
+
 function ScenarioList(): React.JSX.Element {
   const startScenario = useStore((s) => s.startScenario);
+  const stars = useStore((s) => s.stars);
+  const banked = totalStars(stars);
   return (
     <div className="grid gap-2">
-      {SCENARIOS.map((sc) => (
-        <button key={sc.id} onClick={() => startScenario(sc, randomSeed())}
-          className="group text-left rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 hover:border-zinc-700 p-3.5 transition-colors">
-          <div className="flex items-baseline gap-2">
-            <span className="font-semibold text-zinc-100">{sc.title}</span>
-            <span className="text-xs text-zinc-500">{sc.city}</span>
-            <span className={`ml-auto text-[10px] font-bold uppercase tracking-wide ${DIFF_TONE[sc.difficulty]}`}>{sc.difficulty}</span>
-          </div>
-          <p className="text-xs text-zinc-400 mt-1">{sc.blurb}</p>
-          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-amber-300/90">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-            {sc.goal}
-          </div>
-        </button>
-      ))}
+      <div className="flex items-center justify-between text-xs text-zinc-500 px-0.5">
+        <span>Earn stars to unlock new cities</span>
+        <span className="text-amber-300/90 font-mono">{banked} / {MAX_STARS} ★</span>
+      </div>
+      {SCENARIOS.map((sc) => {
+        const unlocked = isUnlocked(sc, banked);
+        const need = starsToUnlock(sc, banked);
+        const earned = stars[sc.scenarioId] ?? 0;
+        return (
+          <button
+            key={sc.scenarioId}
+            disabled={!unlocked}
+            onClick={() => unlocked && startScenario(sc, randomSeed())}
+            className={`group text-left rounded-xl border p-3.5 transition-colors ${
+              unlocked
+                ? 'border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 hover:border-zinc-700'
+                : 'border-zinc-800/60 bg-zinc-900/30 opacity-70 cursor-not-allowed'
+            }`}
+          >
+            <div className="flex items-baseline gap-2">
+              <span className="text-base leading-none">{sc.flag}</span>
+              <span className="font-semibold text-zinc-100">{sc.label}</span>
+              <span className="text-xs text-zinc-500">{sc.city}</span>
+              <span className={`ml-auto text-[10px] font-bold uppercase tracking-wide ${DIFF_TONE[sc.difficulty]}`}>{sc.difficulty}</span>
+            </div>
+            <p className="text-xs text-zinc-400 mt-1">{sc.description}</p>
+            {unlocked ? (
+              <div className="flex items-center gap-2 mt-2 text-[11px]">
+                <span className="flex items-center gap-1.5 text-amber-300/90">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  {sc.goal}
+                </span>
+                <span className="ml-auto"><Stars earned={earned} /></span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mt-2 text-[11px] text-zinc-500">
+                <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 uppercase tracking-wide text-[9px] font-bold">Locked</span>
+                <span>Earn {need} more star{need > 1 ? 's' : ''} to unlock</span>
+              </div>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -252,19 +294,25 @@ function EventsBanner(): React.JSX.Element | null {
 function WinOverlay(): React.JSX.Element {
   const scenario = useStore((s) => s.scenario);
   const account = useStore((s) => s.account);
+  const runStars = useStore((s) => s.runStars);
   const [authOpen, setAuthOpen] = useState(false);
   return (
     <div className="absolute inset-0 z-50 bg-zinc-950/92 backdrop-blur-sm flex items-center justify-center px-6 overflow-y-auto py-8">
       <div className="text-center max-w-sm w-full">
         <div className="flex justify-center mb-4"><Logo size={56} /></div>
         <div className="text-emerald-400 text-xs font-bold uppercase tracking-widest">Objective complete</div>
-        <h2 className="text-3xl font-bold text-zinc-100 mt-2">{scenario?.title ?? 'You did it'}</h2>
-        <p className="text-zinc-400 mt-2">{scenario ? `${scenario.city} — ${scenario.goal}.` : ''} The city runs on the lines you built.</p>
+        <h2 className="text-3xl font-bold text-zinc-100 mt-2">{scenario?.label ?? 'You did it'}</h2>
+        <div className="text-4xl mt-3 tracking-widest">
+          {[0, 1, 2].map((i) => (
+            <span key={i} className={i < runStars ? 'text-amber-400' : 'text-zinc-700'}>★</span>
+          ))}
+        </div>
+        <p className="text-zinc-400 mt-2">{scenario ? `${scenario.city} — ${scenario.goal}.` : ''} Keep building to earn more stars.</p>
 
         {scenario && (
           <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
-            <div className="text-xs uppercase tracking-widest text-zinc-500 mb-2">Leaderboard · {scenario.title}</div>
-            <Leaderboard scenario={scenario.id} />
+            <div className="text-xs uppercase tracking-widest text-zinc-500 mb-2">Leaderboard · {scenario.label}</div>
+            <Leaderboard scenario={scenario.scenarioId} />
             {!account && (
               <button onClick={() => setAuthOpen(true)} className="mt-3 w-full py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs">
                 Sign in to post your score

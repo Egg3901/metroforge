@@ -12,6 +12,7 @@ export default defineConfig({
       '@render': path.resolve(__dirname, 'src/render'),
       '@app': path.resolve(__dirname, 'src/app'),
       '@host': path.resolve(__dirname, 'src/host'),
+      '@content': path.resolve(__dirname, 'src/content'),
     },
   },
   build: {

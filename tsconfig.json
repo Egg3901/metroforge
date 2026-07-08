@@ -19,7 +19,8 @@
       "@core/*": ["src/core/*"],
       "@render/*": ["src/render/*"],
       "@app/*": ["src/app/*"],
-      "@host/*": ["src/host/*"]
+      "@host/*": ["src/host/*"],
+      "@content/*": ["src/content/*"]
     }
   },
   "include": ["src", "test"]

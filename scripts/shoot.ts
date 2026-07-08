@@ -24,6 +24,14 @@ async function main(): Promise<void> {
   page.on('console', (m) => { if (m.type() === 'error') console.log('PAGE ERR:', m.text()); });
   await page.goto(URL, { waitUntil: 'networkidle' });
 
+  if (process.argv.includes('landing')) {
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: `grader/shot-${preset}-overview.png` });
+    await browser.close();
+    console.log('wrote grader/shot-landing');
+    return;
+  }
+
   // new-game screen: pick the city, then start
   const LABELS: Record<string, string> = { nyc: 'New York', la: 'Los Angeles', boston: 'Boston', chicago: 'Chicago', cleveland: 'Cleveland', atlanta: 'Atlanta' };
   await page.getByRole('button', { name: 'Free Play' }).click();
