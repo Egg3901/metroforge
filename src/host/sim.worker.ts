@@ -8,6 +8,7 @@ import { TICKS_PER_DAY } from '@core/constants';
 import { applyCommand, trackCost } from '@core/commands';
 import { pointAlong } from '@core/geometry';
 import { newGame } from '@core/newGame';
+import { loadOsmCity } from '@core/city/osmRegistry';
 import { deserialize, serialize } from '@core/save';
 import { simTick } from '@core/sim';
 import { getRoutePath } from '@core/transit/routePath';
@@ -36,6 +37,8 @@ function sendStatic(s: GameState): void {
       originX: s.fields.originX,
       originY: s.fields.originY,
       worldSize: s.fields.w * s.fields.cellSize,
+      // dense real-city imports have ~5-10k roads; thin them right down
+      roadScale: s.roads.length > 3000 ? 0.28 : s.roads.length > 1500 ? 0.5 : 1,
       roads: s.roads.map((r) => ({
         cls: r.cls,
         points: r.polyline.points.flatMap((p) => [p.x, p.y]),
@@ -211,11 +214,14 @@ self.onmessage = (e: MessageEvent<ToSim>) => {
   const msg = e.data;
   switch (msg.type) {
     case 'init':
-      state = newGame(msg.seed, msg.difficulty, { size: msg.size, presetKey: msg.presetKey });
-      bankrupt = false;
-      fieldsVersion++;
-      sendStatic(state);
-      post({ type: 'ui', ui: buildUi(state) });
+      // real-city presets load their OSM bundle before generating
+      loadOsmCity(msg.presetKey).then((osm) => {
+        state = newGame(msg.seed, msg.difficulty, { size: msg.size, presetKey: msg.presetKey, osm });
+        bankrupt = false;
+        fieldsVersion++;
+        sendStatic(state);
+        post({ type: 'ui', ui: buildUi(state) });
+      });
       break;
     case 'loadSave':
       try {

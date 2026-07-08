@@ -563,6 +563,7 @@ export class GameRenderer {
     g.clear();
     const lg = this.localRoadsG;
     lg.clear();
+    const rs = city.roadScale ?? 1;
     // local streets: single dark pass on their own layer (LOD-faded in tick)
     for (const road of city.roads) {
       if (road.cls !== 'local') continue;
@@ -571,7 +572,7 @@ export class GameRenderer {
       lg.moveTo(pts[0] as number, pts[1] as number);
       for (let i = 2; i < pts.length; i += 2) lg.lineTo(pts[i] as number, pts[i + 1] as number);
     }
-    lg.stroke({ width: 13, color: 0x7f7d74, cap: 'round' });
+    lg.stroke({ width: 13 * rs, color: 0x7f7d74, cap: 'round' });
 
     const classes: { cls: string; casing: number; fill: number; casingColor: number; fillColor: number }[] = [
       { cls: 'collector', casing: 30, fill: 20, casingColor: 0x2b2a26, fillColor: 0x807e76 },
@@ -579,7 +580,7 @@ export class GameRenderer {
     ];
     for (const spec of classes) {
       for (const pass of ['casing', 'fill'] as const) {
-        const width = pass === 'casing' ? spec.casing : spec.fill;
+        const width = (pass === 'casing' ? spec.casing : spec.fill) * rs;
         for (const road of city.roads) {
           if (road.cls !== spec.cls) continue;
           const pts = road.points;
@@ -618,9 +619,10 @@ export class GameRenderer {
     // class carries a keep-out radius (half its drawn width + a footpath margin).
     // Lots whose centre falls inside any road's keep-out are rejected, so nothing
     // is ever drawn sitting on a street. ──
+    const rs = city.roadScale ?? 1;
     const CLEAR_CELL = 64;
     const clearMap = new Map<number, { x: number; y: number; rad: number }[]>();
-    const roadRadius: Record<string, number> = { arterial: 40, collector: 28, local: 12 };
+    const roadRadius: Record<string, number> = { arterial: 40 * rs, collector: 28 * rs, local: 12 * rs };
     const ckey = (x: number, y: number): number => Math.floor(x / CLEAR_CELL) * 73856093 + Math.floor(y / CLEAR_CELL) * 19349663;
     const addClear = (x: number, y: number, rad: number): void => {
       const k = ckey(x, y);

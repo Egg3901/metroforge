@@ -1,6 +1,16 @@
+import { TICKS_PER_DAY } from '@core/constants';
 import { CoinsIcon, PeopleIcon, PinIcon, ShareIcon, ThumbIcon } from './icons';
 import { useStore } from './store';
 import type { OverlayMode } from './store';
+
+/** Map a sim tick to a wall clock within the game day. */
+function clockOf(tick: number): string {
+  const frac = (tick % TICKS_PER_DAY) / TICKS_PER_DAY;
+  const mins = Math.floor(frac * 1440);
+  const hh = String(Math.floor(mins / 60)).padStart(2, '0');
+  const mm = String(mins % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
 
 const OVERLAY_OPTIONS: [OverlayMode, string][] = [
   ['none', 'Map'],
@@ -57,6 +67,20 @@ export function HUD(): React.JSX.Element | null {
   return (
     <div className="absolute top-0 left-0 right-0 bg-zinc-950/85 backdrop-blur-md border-b border-zinc-800/80 z-20 select-none">
       <div className="flex items-center gap-1 px-2 sm:px-4 h-11 overflow-x-auto scrollbar-none">
+        <button
+          onClick={() => {
+            if (confirm('Return to the start screen? Save first if you want to keep this city.')) {
+              useStore.setState({ started: false });
+            }
+          }}
+          title="Home — back to start"
+          className="shrink-0 mr-1 px-2 py-1 rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 10.5 12 3l9 7.5" />
+            <path d="M5 9.5V21h14V9.5" />
+          </svg>
+        </button>
         <span className="hidden sm:block font-bold tracking-tight text-zinc-100 mr-2">
           Metro<span className="text-amber-400">Forge</span>
         </span>
@@ -67,7 +91,11 @@ export function HUD(): React.JSX.Element | null {
           onClick={() => setPanel('budget')}
           className={cashColor}
         />
-        <Stat icon={<span className="text-zinc-500 font-semibold">D</span>} value={String(ui.day)} title="Game day" />
+        <Stat
+          icon={<span className="text-zinc-500 font-semibold">D</span>}
+          value={`${ui.day} · ${clockOf(ui.tick)}`}
+          title="Game day and time of day"
+        />
         <Stat icon={<PeopleIcon size={14} />} value={Math.round(ui.population).toLocaleString()} title="City population" />
         <Stat icon={<ThumbIcon size={14} />} value={`${ui.approval.toFixed(0)}%`} title="Approval rating — drives your subsidy" />
         <Stat icon={<ShareIcon size={14} />} value={`${(ui.transitShare * 100).toFixed(1)}%`} title="Transit mode share" className="hidden sm:flex text-zinc-300" />

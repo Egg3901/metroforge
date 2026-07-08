@@ -4,6 +4,40 @@ All notable changes to MetroForge are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/); this project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-07-08
+
+Real cities and a batch of live-feedback fixes (tracked as GitHub issues #1–#10).
+
+### Added
+- **Real OpenStreetMap cities.** New York and Boston are now imported from OSM —
+  real street networks (10k / 7.5k roads), real coastlines (Manhattan between the
+  Hudson and East River; Boston harbor + the Charles + the downtown peninsula),
+  and real parks (Central Park, Boston Common, the Esplanade). Importer:
+  `scripts/build-cities.ts` (Overpass → project → simplify → bake water/park
+  masks → compact per-city bundle, code-split and lazy-loaded). Marked **REAL**
+  in the city picker. (#4)
+- **Generation grader.** `npm run grade` renders a matrix of cities to PNGs with
+  structural metrics (dangling-end %, grid coherence, water %) and an HTML
+  contact sheet — bulk visual QA for generation, no browser needed. (#3)
+- **In-game clock.** The HUD shows day + time-of-day advancing, so time visibly
+  passes. (#6)
+- **Home button.** Return to the start screen from the HUD. (#7)
+
+### Fixed
+- **Traffic overlay was always empty.** Car-only OD demand was never recorded
+  (only transit-carrying flows were), so the congestion model saw no input. Car
+  flows are now captured from the assignment; the heat + bottleneck markers work
+  with or without transit built. (#5, #6-traffic)
+- **Rigid presets read as radial mush.** Added a citywide global-grid tensor
+  basis; procedural NYC/Chicago/LA now hold a coherent oriented grid (grid
+  coherence 0.57→0.76+). (partial #4, superseded for NYC/Boston by OSM)
+- **Local streets dead-ending.** Local ends now snap to nearby arterials *and*
+  local streets, closing grid stubs. (partial #1)
+
+### Known / tracked
+- Map labels (street / park / water names) still unrendered (#10); clipping
+  artifacts (#2); login (#8) and leaderboard (#9) need a backend.
+
 ## [1.0.0] - 2026-07-08
 
 First tagged release. A deterministic, portable transit-sim core with a PixiJS

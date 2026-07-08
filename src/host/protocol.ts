@@ -66,6 +66,9 @@ export interface StaticCity {
   originX: number;
   originY: number;
   worldSize: number;
+  /** road-width multiplier — dense real-city grids draw much thinner than the
+   *  sparse procedural network the default widths were tuned for */
+  roadScale: number;
   roads: { cls: string; points: number[] }[];
 }
 

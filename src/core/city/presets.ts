@@ -29,6 +29,8 @@ export interface CityPreset {
   key: string;
   label: string;
   blurb: string;
+  /** backed by a real OpenStreetMap import (real roads + coastline) */
+  real?: boolean;
   /** street-grid regularity */
   grid: {
     /** tensor grid patch weight (higher = streets snap harder to the grid) */
@@ -62,7 +64,8 @@ export const CITY_PRESETS: CityPreset[] = [
   {
     key: 'nyc',
     label: 'New York',
-    blurb: 'Dense rectilinear grid on a tilted axis, hemmed by rivers.',
+    real: true,
+    blurb: 'Real Manhattan street grid between the Hudson and East River (OSM).',
     grid: { weight: 1.5, angleDeg: 29, rigid: true, noiseWeight: 0.06 },
     radialWeight: 1.4,
     water: { coast: true, coastAngleDeg: 120, coastInset: 0.78, river: true },
@@ -89,7 +92,8 @@ export const CITY_PRESETS: CityPreset[] = [
   {
     key: 'boston',
     label: 'Boston',
-    blurb: 'Tangled organic streets wrapping a cut-in harbor.',
+    real: true,
+    blurb: 'Real Boston: harbor, the Charles, and the downtown peninsula (OSM).',
     grid: { weight: 0.7, angleDeg: 40, rigid: false, noiseWeight: 0.5 },
     radialWeight: 2.6,
     water: { coast: true, coastAngleDeg: 75, coastInset: 0.62, river: true },

@@ -8,6 +8,7 @@
  */
 import { WORLD_SIZE } from '../constants';
 import { presetByKey, type CityPreset } from './presets';
+import { decodeB64Mask, maskAt, type OsmCityData } from './osmCity';
 import { cellCenter, cellIndexAt, createFieldGrid } from '../fields';
 import { Noise2D, clamp, makePolyline, vec } from '../geometry';
 import type { Vec2 } from '../geometry';
@@ -61,45 +62,65 @@ function decimate(pts: Vec2[]): Vec2[] {
 export interface GenerateOptions {
   worldSize?: number | undefined;
   preset?: CityPreset | undefined;
+  /** real-city OSM dataset — when present, real roads + water replace procgen */
+  osm?: OsmCityData | undefined;
 }
 
 export function generateCity(seed: number, difficulty: Difficulty, opts: GenerateOptions = {}): GeneratedCity {
   const preset = opts.preset ?? presetByKey('generic');
+  const osm = opts.osm;
   const rng = new Rng(seed);
   const terrainNoise = new Noise2D(() => rng.nextUint());
   const detailNoise = new Noise2D(() => rng.nextUint());
-  const fields = createFieldGrid(opts.worldSize);
+  const fields = createFieldGrid(osm ? osm.worldSize : opts.worldSize);
   const worldSize = fields.w * fields.cellSize;
   const HALF = worldSize / 2;
 
-  // ── Terrain + coastal water (preset-controlled) ──
+  // ── Terrain + water ──
   const w = preset.water;
   const waterAngle = w.coastAngleDeg !== null ? (w.coastAngleDeg * Math.PI) / 180 : rng.range(0, Math.PI * 2);
   const waterDir = vec(Math.cos(waterAngle), Math.sin(waterAngle));
   const waterOffset = w.coastInset * HALF;
 
-  for (let cy = 0; cy < fields.h; cy++) {
-    for (let cx = 0; cx < fields.w; cx++) {
-      const i = cy * fields.w + cx;
-      const p = cellCenter(fields, i);
-      const nx = p.x / worldSize;
-      const ny = p.y / worldSize;
-      let elev = terrainNoise.fbm(nx * 4 + 10, ny * 4 + 10, 4);
-      // landlocked presets keep the noise but never dip below the waterline
-      if (!w.coast) {
-        fields.terrain[i] = clamp(0.35 + elev * 0.5, 0, 1);
-        fields.water[i] = 0;
-        continue;
+  if (osm) {
+    // real-city land/water/parks from the baked OSM masks; gentle procedural relief
+    const mask = decodeB64Mask(osm.waterMask);
+    const pmask = osm.parkMask ? decodeB64Mask(osm.parkMask) : null;
+    for (let cy = 0; cy < fields.h; cy++) {
+      for (let cx = 0; cx < fields.w; cx++) {
+        const i = cy * fields.w + cx;
+        const p = cellCenter(fields, i);
+        const water = maskAt(mask, osm.maskRes, worldSize, p.x, p.y);
+        fields.water[i] = water ? 1 : 0;
+        if (pmask && !water && maskAt(pmask, osm.maskRes, worldSize, p.x, p.y)) fields.parks[i] = 1;
+        const elev = terrainNoise.fbm((p.x / worldSize) * 4 + 10, (p.y / worldSize) * 4 + 10, 4);
+        fields.terrain[i] = water ? 0.12 : clamp(0.35 + elev * 0.4, 0, 1);
       }
-      const coastDist = p.x * waterDir.x + p.y * waterDir.y - waterOffset;
-      if (coastDist > 0) elev -= (coastDist / HALF) * 0.9;
-      fields.terrain[i] = clamp(elev, 0, 1);
-      fields.water[i] = elev < 0.22 ? 1 : 0;
+    }
+  } else {
+    for (let cy = 0; cy < fields.h; cy++) {
+      for (let cx = 0; cx < fields.w; cx++) {
+        const i = cy * fields.w + cx;
+        const p = cellCenter(fields, i);
+        const nx = p.x / worldSize;
+        const ny = p.y / worldSize;
+        let elev = terrainNoise.fbm(nx * 4 + 10, ny * 4 + 10, 4);
+        // landlocked presets keep the noise but never dip below the waterline
+        if (!w.coast) {
+          fields.terrain[i] = clamp(0.35 + elev * 0.5, 0, 1);
+          fields.water[i] = 0;
+          continue;
+        }
+        const coastDist = p.x * waterDir.x + p.y * waterDir.y - waterOffset;
+        if (coastDist > 0) elev -= (coastDist / HALF) * 0.9;
+        fields.terrain[i] = clamp(elev, 0, 1);
+        fields.water[i] = elev < 0.22 ? 1 : 0;
+      }
     }
   }
 
   // ── River: meanders from an inland edge downhill to the sea ──
-  if (w.river) {
+  if (w.river && !osm) {
     const startAngle = waterAngle + Math.PI + rng.range(-0.5, 0.5);
     let px = Math.cos(startAngle) * HALF * 0.95;
     let py = Math.sin(startAngle) * HALF * 0.95;
@@ -222,26 +243,29 @@ export function generateCity(seed: number, difficulty: Difficulty, opts: Generat
     fields.jobs[i] = ((rawJobs[i] as number) / rawJobsSum) * jobsTarget;
   }
 
-  // ── Parks: noise pockets + signature parks; displace residents ──
+  // ── Parks: real parks (OSM) already stamped above; else noise pockets +
+  //    signature parks. Either way, parks displace residents. ──
   {
-    for (let i = 0; i < fields.parks.length; i++) {
-      if ((fields.water[i] as number) === 1) continue;
-      const c = cellCenter(fields, i);
-      const n = detailNoise.fbm(c.x / 1400 + 300, c.y / 1400 + 300, 3);
-      const dCbd = Math.hypot(c.x - cbd.x, c.y - cbd.y);
-      if (n > 0.66 && dCbd > 700) fields.parks[i] = 1;
-    }
-    const bigParks = rng.int(1, 2);
-    for (let k = 0; k < bigParks; k++) {
-      const ang = rng.range(0, Math.PI * 2);
-      const cx0 = cbd.x + Math.cos(ang) * rng.range(1200, 2400);
-      const cy0 = cbd.y + Math.sin(ang) * rng.range(1200, 2400);
-      const w = rng.range(500, 900);
-      const h = rng.range(350, 650);
+    if (!osm) {
       for (let i = 0; i < fields.parks.length; i++) {
+        if ((fields.water[i] as number) === 1) continue;
         const c = cellCenter(fields, i);
-        if (Math.abs(c.x - cx0) < w / 2 && Math.abs(c.y - cy0) < h / 2 && (fields.water[i] as number) === 0) {
-          fields.parks[i] = 1;
+        const n = detailNoise.fbm(c.x / 1400 + 300, c.y / 1400 + 300, 3);
+        const dCbd = Math.hypot(c.x - cbd.x, c.y - cbd.y);
+        if (n > 0.66 && dCbd > 700) fields.parks[i] = 1;
+      }
+      const bigParks = rng.int(1, 2);
+      for (let k = 0; k < bigParks; k++) {
+        const ang = rng.range(0, Math.PI * 2);
+        const cx0 = cbd.x + Math.cos(ang) * rng.range(1200, 2400);
+        const cy0 = cbd.y + Math.sin(ang) * rng.range(1200, 2400);
+        const w = rng.range(500, 900);
+        const h = rng.range(350, 650);
+        for (let i = 0; i < fields.parks.length; i++) {
+          const c = cellCenter(fields, i);
+          if (Math.abs(c.x - cx0) < w / 2 && Math.abs(c.y - cy0) < h / 2 && (fields.water[i] as number) === 0) {
+            fields.parks[i] = 1;
+          }
         }
       }
     }
@@ -265,6 +289,9 @@ export function generateCity(seed: number, difficulty: Difficulty, opts: Generat
   const baseAngle = (preset.grid.angleDeg * Math.PI) / 180;
   const field: TensorField = {
     grids: [],
+    // rigid presets get a dominant citywide grid; the local patches + radial
+    // then only perturb it, so the whole city reads as one oriented grid
+    ...(preset.grid.rigid ? { globalGrid: { theta: baseAngle, weight: 3.2 } } : {}),
     radialCenter: cbd,
     radialWeight: preset.radialWeight,
     radialSigma: 2600,
@@ -314,6 +341,16 @@ export function generateCity(seed: number, difficulty: Difficulty, opts: Generat
   // ── Arterials: sparse streamlines, both eigen directions, may bridge water ──
   const roads: RoadEdge[] = [];
   let roadId = 1;
+  if (osm) {
+    // real street network straight from the OSM bundle
+    for (const r of osm.roads) {
+      if (r.pts.length < 4) continue;
+      const pl: Vec2[] = [];
+      for (let i = 0; i + 1 < r.pts.length; i += 2) pl.push(vec(r.pts[i] as number, r.pts[i + 1] as number));
+      const cls: RoadEdge['cls'] = r.cls === 'arterial' || r.cls === 'collector' ? r.cls : 'local';
+      roads.push({ id: roadId++, cls, polyline: makePolyline(pl) });
+    }
+  } else {
   const arterialSeeds: Vec2[] = [cbd, ...subcenters];
   for (let k = 0; k < 18; k++) {
     const cand = vec(rng.range(-HALF * 0.85, HALF * 0.85), rng.range(-HALF * 0.85, HALF * 0.85));
@@ -360,11 +397,13 @@ export function generateCity(seed: number, difficulty: Difficulty, opts: Generat
   // Junction snap: pull each local street's dangling ends onto the nearest
   // arterial so small streets actually meet the main roads (T-intersections)
   // instead of stopping just short of them.
-  const SNAP_DIST = 150;
-  const projectToArterials = (p: Vec2): Vec2 | null => {
-    let best = SNAP_DIST * SNAP_DIST;
+  // Project a point onto the nearest segment across a set of polylines (within
+  // maxDist), skipping one line by reference (so a line never snaps to itself).
+  const projectOnto = (p: Vec2, lines: Vec2[][], maxDist: number, skip: Vec2[] | null): Vec2 | null => {
+    let best = maxDist * maxDist;
     let bestP: Vec2 | null = null;
-    for (const line of arterials) {
+    for (const line of lines) {
+      if (line === skip) continue;
       for (let i = 0; i + 1 < line.length; i++) {
         const a = line[i] as Vec2;
         const b = line[i + 1] as Vec2;
@@ -384,15 +423,27 @@ export function generateCity(seed: number, difficulty: Difficulty, opts: Generat
     }
     return bestP;
   };
+  // Snap each local end to the nearest arterial (long reach, main-road junctions)
+  // else to a nearby local street (short reach, closes grid stubs). This is what
+  // makes small streets visibly meet other streets instead of dead-ending.
+  const ARTERIAL_SNAP = 150;
+  const LOCAL_SNAP = 80;
   for (const line of locals) {
     if (line.length >= 2) {
-      const head = projectToArterials(line[0] as Vec2);
-      if (head && Math.hypot(head.x - (line[0] as Vec2).x, head.y - (line[0] as Vec2).y) > 12 && !isWaterAt(head)) line.unshift(head);
-      const tail = projectToArterials(line[line.length - 1] as Vec2);
-      if (tail && Math.hypot(tail.x - (line[line.length - 1] as Vec2).x, tail.y - (line[line.length - 1] as Vec2).y) > 12 && !isWaterAt(tail)) line.push(tail);
+      for (const endIdx of [0, line.length - 1] as const) {
+        const end = line[endIdx] as Vec2;
+        const q =
+          projectOnto(end, arterials, ARTERIAL_SNAP, null) ??
+          projectOnto(end, locals, LOCAL_SNAP, line);
+        if (q && Math.hypot(q.x - end.x, q.y - end.y) > 12 && !isWaterAt(q)) {
+          if (endIdx === 0) line.unshift({ ...q });
+          else line.push({ ...q });
+        }
+      }
     }
     roads.push({ id: roadId++, cls: 'local', polyline: makePolyline(decimate(line)) });
   }
+  } // end procedural road generation
 
   // ── Land value: CBD proximity + waterfront + noise; NIMBY from wealth ──
   for (let i = 0; i < fields.landValue.length; i++) {

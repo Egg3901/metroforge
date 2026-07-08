@@ -155,7 +155,7 @@ export function refreshAssignment(state: GameState): void {
   state.stats.coverage = totalPop > 0 ? covered / totalPop : 0;
 
   // congestion overlay: where car demand chokes the road network
-  state.traffic = computeTraffic(state);
+  state.traffic = computeTraffic(state, result.carFlows);
 }
 
 function runDailyEconomy(state: GameState, _day: number, events: TickEvents): void {

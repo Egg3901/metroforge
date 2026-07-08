@@ -1,18 +1,22 @@
 import { STARTING_CASH } from './constants';
 import { generateCity } from './city/generator';
 import { MAP_SIZE_METERS, presetByKey, type MapSize } from './city/presets';
+import type { OsmCityData } from './city/osmCity';
 import { Rng } from './rng';
 import type { Difficulty, GameState } from './types';
 
 export interface NewGameOptions {
   size?: MapSize | undefined;
   presetKey?: string | undefined;
+  /** preloaded real-city dataset (loaded async by the host before calling) */
+  osm?: OsmCityData | undefined;
 }
 
 export function newGame(seed: number, difficulty: Difficulty, options: NewGameOptions = {}): GameState {
   const city = generateCity(seed, difficulty, {
     worldSize: options.size ? MAP_SIZE_METERS[options.size] : undefined,
     preset: presetByKey(options.presetKey),
+    osm: options.osm,
   });
   const rng = new Rng((seed ^ 0x5bd1e995) >>> 0);
   let population = 0;

@@ -12,6 +12,7 @@
  * Presentation/analytics only. Never feeds back into the economy.
  */
 import type { GameState, RoadEdge } from '../types';
+import type { CarFlow } from './assignment';
 
 export interface TrafficHotspot {
   x: number;
@@ -94,7 +95,7 @@ function blur(arr: Float32Array, w: number, h: number): void {
   arr.set(next);
 }
 
-export function computeTraffic(state: GameState): TrafficField {
+export function computeTraffic(state: GameState, carFlows: CarFlow[]): TrafficField {
   const g = state.fields;
   const W = g.w;
   const H = g.h;
@@ -102,7 +103,7 @@ export function computeTraffic(state: GameState): TrafficField {
   const centroid = new Map(state.districts.map((d) => [d.id, d.centroid]));
 
   // Rasterize each car OD flow as a straight desire line into the load grid.
-  for (const f of state.flows) {
+  for (const f of carFlows) {
     if (f.carTrips < 1) continue;
     const a = centroid.get(f.originDistrict);
     const b = centroid.get(f.destDistrict);

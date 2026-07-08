@@ -24,6 +24,9 @@ export interface BoundarySample {
 
 export interface TensorField {
   grids: GridBasis[];
+  /** citywide constant orientation (no falloff) — makes rigid grid cities read
+   *  as one coherent grid instead of patches the radial field bends apart */
+  globalGrid?: { theta: number; weight: number };
   radialCenter: Vec2;
   radialWeight: number;
   radialSigma: number;
@@ -39,6 +42,11 @@ export interface TensorField {
 export function sampleAngle(f: TensorField, p: Vec2): number {
   let c2 = 0;
   let s2 = 0;
+
+  if (f.globalGrid) {
+    c2 += f.globalGrid.weight * Math.cos(2 * f.globalGrid.theta);
+    s2 += f.globalGrid.weight * Math.sin(2 * f.globalGrid.theta);
+  }
 
   for (const g of f.grids) {
     const dx = p.x - g.center.x;

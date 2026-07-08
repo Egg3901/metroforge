@@ -141,8 +141,17 @@ class MinHeap {
   }
 }
 
+/** Car demand per OD pair — every trip that drives, so the congestion model
+ *  sees the whole road load, not just corridors that happen to carry transit. */
+export interface CarFlow {
+  originDistrict: number;
+  destDistrict: number;
+  carTrips: number;
+}
+
 export interface AssignmentOutput {
   flows: FlowResult[];
+  carFlows: CarFlow[];
   routeRidership: Map<number, number>;
   routeRevenue: Map<number, number>;
   stationBoardings: Map<number, number>;
@@ -154,6 +163,7 @@ export function runAssignment(state: GameState): AssignmentOutput {
   const { districts, stations, routes } = state;
   const graph = buildGraph(stations, routes);
   const flows: FlowResult[] = [];
+  const carFlows: CarFlow[] = [];
   const routeRidership = new Map<number, number>();
   const routeRevenue = new Map<number, number>();
   const stationBoardings = new Map<number, number>();
@@ -246,6 +256,7 @@ export function runAssignment(state: GameState): AssignmentOutput {
 
       if (bestStreet < 0 || !isFinite(transitCost) || transitCost > MAX_TRANSIT_COST_MIN) {
         dailyCarTrips += pairTrips;
+        carFlows.push({ originDistrict: origin.id, destDistrict: dest.id, carTrips: pairTrips });
         continue;
       }
 
@@ -255,8 +266,10 @@ export function runAssignment(state: GameState): AssignmentOutput {
       const carTrips = pairTrips - transitTrips;
       if (transitTrips < 1) {
         dailyCarTrips += pairTrips;
+        carFlows.push({ originDistrict: origin.id, destDistrict: dest.id, carTrips: pairTrips });
         continue;
       }
+      if (carTrips >= 1) carFlows.push({ originDistrict: origin.id, destDistrict: dest.id, carTrips });
 
       // path recovery: walk back through prev pointers, collect route boardings
       const routeIds: number[] = [];
@@ -300,5 +313,5 @@ export function runAssignment(state: GameState): AssignmentOutput {
     }
   }
 
-  return { flows, routeRidership, routeRevenue, stationBoardings, dailyTransitTrips, dailyCarTrips };
+  return { flows, carFlows, routeRidership, routeRevenue, stationBoardings, dailyTransitTrips, dailyCarTrips };
 }

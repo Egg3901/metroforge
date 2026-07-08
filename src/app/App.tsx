@@ -53,15 +53,20 @@ function NewGameScreen(): React.JSX.Element {
         <div>
           <div className="text-sm text-zinc-300 mb-1">City</div>
           <div className="grid grid-cols-2 gap-1.5">
-            {CITY_PRESETS.map((p) => (
+            {[...CITY_PRESETS].sort((a, b) => Number(b.real ?? false) - Number(a.real ?? false)).map((p) => (
               <button
                 key={p.key}
                 onClick={() => setPresetKey(p.key)}
-                className={`py-2 rounded text-sm ${
+                className={`relative py-2 rounded text-sm ${
                   presetKey === p.key ? 'bg-amber-500 text-zinc-950 font-bold' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
                 }`}
               >
                 {p.label}
+                {p.real && (
+                  <span className={`absolute top-0.5 right-1 text-[8px] font-bold tracking-wide ${presetKey === p.key ? 'text-zinc-900' : 'text-emerald-400'}`}>
+                    REAL
+                  </span>
+                )}
               </button>
             ))}
           </div>
