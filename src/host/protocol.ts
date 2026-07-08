@@ -65,6 +65,14 @@ export interface UiState {
   /** bumped when land-use fields changed (renderer re-bakes) */
   fieldsVersion: number;
   bankrupt: boolean;
+  /** non-bankruptcy failure reason, if any */
+  failed: 'bankrupt' | 'approval' | 'time' | null;
+  /** scenario calendar limit, if any */
+  maxDay: number | null;
+  /** era label for HUD, if any */
+  eraLabel: string | null;
+  /** command count recorded this run (for replay submit) */
+  commandCount: number;
 }
 
 export interface StaticCity {
@@ -109,12 +117,13 @@ export interface FrameSnapshot {
 }
 
 export type ToSim =
-  | { type: 'init'; seed: number; difficulty: Difficulty; size?: 'small' | 'medium' | 'large' | undefined; presetKey?: string | undefined }
+  | { type: 'init'; seed: number; difficulty: Difficulty; size?: 'small' | 'medium' | 'large' | undefined; presetKey?: string | undefined; rules?: import('@core/scenarioRules').ScenarioRules | undefined }
   | { type: 'loadSave'; json: string }
   | { type: 'requestSave' }
   | { type: 'setSpeed'; speed: number }
   | { type: 'command'; requestId: number; cmd: Command }
-  | { type: 'queryTrackCost'; requestId: number; mode: TransitMode; grade: 'surface' | 'elevated' | 'tunnel'; points: { x: number; y: number }[] };
+  | { type: 'queryTrackCost'; requestId: number; mode: TransitMode; grade: 'surface' | 'elevated' | 'tunnel'; points: { x: number; y: number }[] }
+  | { type: 'requestReplay' };
 
 export interface TrafficPayload {
   w: number;
@@ -143,4 +152,17 @@ export type FromSim =
   | { type: 'commandResult'; requestId: number; result: CommandResult }
   | { type: 'trackCost'; requestId: number; cost: number }
   | { type: 'saved'; json: string }
+  | { type: 'replay'; payload: ReplayPayload }
   | { type: 'toast'; message: string; tone: 'info' | 'warn' | 'good' };
+
+export interface ReplayPayload {
+  seed: number;
+  difficulty: Difficulty;
+  presetKey?: string;
+  size?: 'small' | 'medium' | 'large';
+  rules?: import('@core/scenarioRules').ScenarioRules;
+  commandLog: { tick: number; cmd: Command }[];
+  finalTick: number;
+  stateHash: number;
+  scoreHint: number;
+}

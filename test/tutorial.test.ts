@@ -23,6 +23,14 @@ const emptyUi = (over: Partial<UiState> = {}): UiState =>
     lastDay: { fares: 0, subsidy: 0, operations: 0, maintenance: 0, interest: 0 },
     activeEvents: [],
     bankrupt: false,
+    failed: null,
+    maxDay: null,
+    eraLabel: null,
+    commandCount: 0,
+    insights: [],
+    speed: 1,
+    loanBalance: 0,
+    fieldsVersion: 0,
     ...over,
   }) as UiState;
 

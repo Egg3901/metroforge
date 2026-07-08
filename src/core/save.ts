@@ -8,7 +8,7 @@ import { makePolyline } from './geometry';
 import { getBankruptDays, setBankruptDays } from './sim';
 import type { GameState, RoadEdge, TrackSegment } from './types';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 export function serialize(state: GameState): string {
   // transient fields (recomputed / reloaded), never serialized
@@ -36,8 +36,8 @@ export function serialize(state: GameState): string {
 
 export function deserialize(json: string): GameState {
   const raw = JSON.parse(json) as { version: number; bankruptDays?: number; state: Record<string, unknown> };
-  if (raw.version !== SAVE_VERSION) {
-    throw new Error(`Unsupported save version ${raw.version} (expected ${SAVE_VERSION})`);
+  if (raw.version !== 1 && raw.version !== SAVE_VERSION) {
+    throw new Error(`Unsupported save version ${raw.version} (expected 1..${SAVE_VERSION})`);
   }
   setBankruptDays(raw.bankruptDays ?? 0);
   const s = raw.state as unknown as Omit<GameState, 'fields' | 'roads' | 'tracks'> & {
@@ -45,10 +45,13 @@ export function deserialize(json: string): GameState {
     roads: { id: number; cls: RoadEdge['cls']; points: { x: number; y: number }[] }[];
     tracks: (Omit<TrackSegment, 'polyline'> & { points: { x: number; y: number }[] })[];
   };
-  return {
+  const restored: GameState = {
     ...s,
     activeEvents: s.activeEvents ?? [],
     nextEventDay: s.nextEventDay ?? 8,
+    commandLog: s.commandLog ?? [],
+    lowApprovalDays: s.lowApprovalDays ?? 0,
+    failed: s.failed ?? null,
     fields: fieldsFromJSON(s.fields),
     roads: s.roads.map((r) => ({ id: r.id, cls: r.cls, polyline: makePolyline(r.points) })),
     tracks: s.tracks.map((t) => ({
@@ -61,6 +64,8 @@ export function deserialize(json: string): GameState {
       polyline: makePolyline(t.points),
     })),
   };
+  if (s.scenarioRules) restored.scenarioRules = s.scenarioRules;
+  return restored;
 }
 
 /** Cheap deterministic state fingerprint for replay verification / port acceptance. */

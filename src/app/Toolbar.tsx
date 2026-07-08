@@ -82,7 +82,15 @@ export function Toolbar(): React.JSX.Element | null {
           key={m}
           disabled={!unlocked}
           onClick={() => setMode(m)}
-          title={unlocked ? MODES[m].label : `Unlocks at ${(MODES[m].unlockPopulation / 1000).toFixed(0)}k population`}
+          title={
+            unlocked
+              ? MODES[m].label
+              : m === 'tram'
+                ? 'Earn 1,000 daily riders (or 50k pop)'
+                : m === 'metro'
+                  ? 'Reach 10% share or 50% coverage'
+                  : 'Reach 25% share or 50k daily riders'
+          }
           className={`flex items-center justify-center gap-1.5 rounded-lg transition-colors ${compact ? 'p-2.5' : 'px-2 py-2 flex-1'} ${
             active
               ? 'bg-zinc-800 ring-1 ring-amber-400/70 ' + MODE_TINT[m]

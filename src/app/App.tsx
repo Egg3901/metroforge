@@ -8,6 +8,7 @@ import type { MapSize } from '@core/city/presets';
 import { OSM_CITY_KEYS } from '@core/city/osmRegistry';
 import { Logo, Wordmark, TAGLINE } from './brand';
 import { SCENARIOS } from './scenarios';
+import { dailyChallengeFor } from './daily';
 import { isUnlocked, starsToUnlock, totalStars } from '@content/campaign';
 import { MAX_STARS } from '@content/scenarioRegistry';
 import { authenticate, fetchLeaderboard, signOut, type LeaderEntry } from './api';
@@ -121,7 +122,7 @@ function ScenarioList(): React.JSX.Element {
   return (
     <div className="grid gap-2">
       <div className="flex items-center justify-between text-xs text-zinc-500 px-0.5">
-        <span>Earn stars to unlock new cities</span>
+        <span>Historical eras · earn stars to unlock</span>
         <span className="text-amber-300/90 font-mono">{banked} / {MAX_STARS} ★</span>
       </div>
       {SCENARIOS.map((sc) => {
@@ -142,7 +143,7 @@ function ScenarioList(): React.JSX.Element {
             <div className="flex items-baseline gap-2">
               <span className="text-base leading-none">{sc.flag}</span>
               <span className="font-semibold text-zinc-100">{sc.label}</span>
-              <span className="text-xs text-zinc-500">{sc.city}</span>
+              <span className="text-xs text-zinc-500">{sc.city} · {sc.era}</span>
               <span className={`ml-auto text-[10px] font-bold uppercase tracking-wide ${DIFF_TONE[sc.difficulty]}`}>{sc.difficulty}</span>
             </div>
             <p className="text-xs text-zinc-400 mt-1">{sc.description}</p>
@@ -163,6 +164,38 @@ function ScenarioList(): React.JSX.Element {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function DailyPanel(): React.JSX.Element {
+  const startScenario = useStore((s) => s.startScenario);
+  const daily = dailyChallengeFor();
+  const sc = daily.scenario;
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-amber-500/30 bg-zinc-900/60 p-4">
+        <div className="text-[10px] uppercase tracking-[0.18em] text-amber-400/90 font-semibold mb-1">Today · {daily.dayKey}</div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-base">{sc.flag}</span>
+          <span className="font-display text-xl text-zinc-50">{sc.city} {sc.era}</span>
+        </div>
+        <p className="text-sm text-zinc-400 mt-1.5">{sc.description}</p>
+        <p className="text-xs text-amber-300/90 mt-2">{sc.goal}</p>
+        <p className="text-[11px] text-zinc-500 mt-1">
+          Shared seed · {sc.rules.maxDay} day limit · modes: {sc.rules.startingModes.join(', ')}
+        </p>
+        <button
+          onClick={() => startScenario(sc, daily.seed)}
+          className="mt-4 w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold transition-colors"
+        >
+          Play today&apos;s challenge
+        </button>
+      </div>
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+        <div className="text-xs uppercase tracking-widest text-zinc-500 mb-2">Today&apos;s board</div>
+        <Leaderboard scenario={daily.challengeId} />
+      </div>
     </div>
   );
 }
@@ -216,7 +249,7 @@ function Leaderboard({ scenario }: { scenario: string }): React.JSX.Element {
           <span className="tabular-nums text-zinc-400">{Math.round(e.value).toLocaleString()}</span>
         </div>
       ))}
-      <div className="text-[10px] text-zinc-600 mt-1">daily riders</div>
+      <div className="text-[10px] text-zinc-600 mt-1">score</div>
     </div>
   );
 }
@@ -225,7 +258,7 @@ function NewGameScreen(): React.JSX.Element {
   const client = useStore((s) => s.client);
   const account = useStore((s) => s.account);
   const setAccount = useStore((s) => s.setAccount);
-  const [tab, setTab] = useState<'scenarios' | 'free'>('scenarios');
+  const [tab, setTab] = useState<'daily' | 'scenarios' | 'free'>('daily');
   const [authOpen, setAuthOpen] = useState(false);
   const hasSave = localStorage.getItem('metroforge:save:auto') !== null;
   return (
@@ -251,7 +284,7 @@ function NewGameScreen(): React.JSX.Element {
         </div>
 
         <div className="flex gap-1 p-1 bg-zinc-900/70 rounded-xl mb-4">
-          {([['scenarios', 'Scenarios'], ['free', 'Free Play']] as const).map(([k, label]) => (
+          {([['daily', 'Daily'], ['scenarios', 'Eras'], ['free', 'Free Play']] as const).map(([k, label]) => (
             <button key={k} onClick={() => setTab(k)}
               className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${tab === k ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'}`}>
               {label}
@@ -259,7 +292,7 @@ function NewGameScreen(): React.JSX.Element {
           ))}
         </div>
 
-        {tab === 'scenarios' ? <ScenarioList /> : <FreePlay />}
+        {tab === 'daily' ? <DailyPanel /> : tab === 'scenarios' ? <ScenarioList /> : <FreePlay />}
 
         {hasSave && (
           <button
@@ -285,7 +318,7 @@ function NewGameScreen(): React.JSX.Element {
           </button>
         )}
         <p className="text-[11px] text-zinc-600 text-center mt-auto pt-6">
-          Buses first; grow to unlock tram · metro · rail. Keys: 1–4 modes · S T R B · Space pause.
+          Historical eras · daily challenge · free play. Keys: 1–4 modes · S T R B · Space pause.
         </p>
       </div>
     </div>
@@ -316,18 +349,24 @@ function WinOverlay(): React.JSX.Element {
   const account = useStore((s) => s.account);
   const runStars = useStore((s) => s.runStars);
   const [authOpen, setAuthOpen] = useState(false);
+  const isDaily = scenario?.scenarioId.startsWith('daily-') ?? false;
   return (
     <div className="absolute inset-0 z-50 bg-zinc-950/92 backdrop-blur-sm flex items-center justify-center px-6 overflow-y-auto py-8">
       <div className="text-center max-w-sm w-full">
         <div className="flex justify-center mb-4"><Logo size={56} /></div>
         <div className="text-emerald-400 text-xs font-bold uppercase tracking-widest">Objective complete</div>
-        <h2 className="text-3xl font-bold text-zinc-100 mt-2">{scenario?.label ?? 'You did it'}</h2>
-        <div className="text-4xl mt-3 tracking-widest">
-          {[0, 1, 2].map((i) => (
-            <span key={i} className={i < runStars ? 'text-amber-400' : 'text-zinc-700'}>★</span>
-          ))}
-        </div>
-        <p className="text-zinc-400 mt-2">{scenario ? `${scenario.city} — ${scenario.goal}.` : ''} Keep building to earn more stars.</p>
+        <h2 className="font-display text-3xl font-bold text-zinc-100 mt-2">{scenario?.label ?? 'You did it'}</h2>
+        {!isDaily && (
+          <div className="text-4xl mt-3 tracking-widest">
+            {[0, 1, 2].map((i) => (
+              <span key={i} className={i < runStars ? 'text-amber-400' : 'text-zinc-700'}>★</span>
+            ))}
+          </div>
+        )}
+        <p className="text-zinc-400 mt-2">
+          {scenario ? `${scenario.city} ${scenario.era} — ${scenario.goal}.` : ''}
+          {isDaily ? ' Check the daily board.' : ' Keep building to earn more stars.'}
+        </p>
 
         {scenario && (
           <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
@@ -351,11 +390,37 @@ function WinOverlay(): React.JSX.Element {
   );
 }
 
+function FailOverlay(): React.JSX.Element | null {
+  const failed = useStore((s) => s.ui?.failed ?? null);
+  const bankrupt = useStore((s) => s.ui?.bankrupt ?? false);
+  const reason = failed ?? (bankrupt ? 'bankrupt' : null);
+  if (!reason) return null;
+  const copy =
+    reason === 'approval'
+      ? { title: 'Voted Out', body: 'Approval collapsed and the board fired you.' }
+      : reason === 'time'
+        ? { title: 'Time Up', body: 'The deadline passed before you met the objective.' }
+        : { title: 'Bankruptcy', body: 'The city has taken over your transit authority.' };
+  return (
+    <div className="absolute inset-0 z-40 bg-zinc-950/90 flex items-center justify-center px-6">
+      <div className="text-center space-y-4 max-w-sm">
+        <h2 className="font-display text-3xl font-bold text-red-400">{copy.title}</h2>
+        <p className="text-zinc-400">{copy.body}</p>
+        <button
+          onClick={() => useStore.setState({ started: false, won: false, scenario: null })}
+          className="px-6 py-2 rounded bg-amber-500 text-zinc-950 font-bold"
+        >
+          Back to menu
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function App(): React.JSX.Element {
   const started = useStore((s) => s.started);
   const panel = useStore((s) => s.panel);
   const won = useStore((s) => s.won);
-  const bankrupt = useStore((s) => s.ui?.bankrupt ?? false);
   return (
     <div className="fixed inset-0 bg-zinc-950">
       <GameCanvas />
@@ -370,18 +435,8 @@ export function App(): React.JSX.Element {
       <Toasts />
       {started && <TutorialCard />}
       {started && won && <WinOverlay />}
+      {started && <FailOverlay />}
       {!started && <NewGameScreen />}
-      {bankrupt && (
-        <div className="absolute inset-0 z-40 bg-zinc-950/90 flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <h2 className="text-3xl font-bold text-red-400">Bankruptcy</h2>
-            <p className="text-zinc-400">The city has taken over your transit authority.</p>
-            <button onClick={() => location.reload()} className="px-6 py-2 rounded bg-amber-500 text-zinc-950 font-bold">
-              New game
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

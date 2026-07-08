@@ -73,10 +73,16 @@ export function HUD(): React.JSX.Element | null {
     ui.lastDay.fares + ui.lastDay.subsidy - ui.lastDay.operations - ui.lastDay.maintenance - ui.lastDay.interest;
 
   const share = async (): Promise<void> => {
-    const cityLabel = scenario?.city ?? 'My Network';
+    const cityLabel = scenario ? `${scenario.city} ${scenario.era}` : 'My Network';
     const ok = await exportNetworkCard({ cityLabel, ui });
     pushToast(ok ? 'Network card saved' : 'Could not capture the map yet', ok ? 'good' : 'warn');
   };
+
+  const dayLabel =
+    ui.maxDay != null ? `${ui.day}/${ui.maxDay}` : String(ui.day);
+  const dayTone =
+    ui.maxDay != null && ui.day / ui.maxDay > 0.85 ? 'text-rose-400' : 'text-zinc-300';
+  const scProgress = scenario ? Math.min(1, scenario.progress(ui)) : 0;
 
   return (
     <div className="absolute top-0 left-0 right-0 bg-zinc-950/85 backdrop-blur-md border-b border-zinc-800/80 z-20 select-none">
@@ -96,6 +102,11 @@ export function HUD(): React.JSX.Element | null {
           </svg>
         </button>
         <span className="hidden sm:flex items-center mr-2"><Wordmark size={16} /></span>
+        {ui.eraLabel && (
+          <span className="hidden sm:inline text-[10px] uppercase tracking-widest text-amber-400/80 mr-2 font-semibold">
+            {ui.eraLabel}
+          </span>
+        )}
         <Stat
           icon={<CoinsIcon size={14} />}
           value={`${fmtMoney(ui.cash)} · ${net >= 0 ? '+' : ''}${fmtMoney(net)}/d`}
@@ -105,13 +116,27 @@ export function HUD(): React.JSX.Element | null {
         />
         <Stat
           icon={<span className="text-zinc-500 font-semibold">D</span>}
-          value={`${ui.day} · ${clockOf(ui.tick)}`}
-          title="Game day and time of day"
+          value={`${dayLabel} · ${clockOf(ui.tick)}`}
+          title={ui.maxDay != null ? `Day ${ui.day} of ${ui.maxDay}` : 'Game day and time of day'}
+          className={dayTone}
         />
+        {scenario && (
+          <Stat
+            icon={<span className="text-amber-400/80 font-semibold">◎</span>}
+            value={scenario.readout(ui)}
+            title={scenario.goal}
+            className="hidden md:flex text-amber-200/90"
+          />
+        )}
         <Stat icon={<PeopleIcon size={14} />} value={Math.round(ui.population).toLocaleString()} title="City population" />
         <Stat icon={<ThumbIcon size={14} />} value={`${ui.approval.toFixed(0)}%`} title="Approval rating — drives your subsidy" />
         <Stat icon={<ShareIcon size={14} />} value={`${(ui.transitShare * 100).toFixed(1)}%`} title="Transit mode share" className="hidden sm:flex text-zinc-300" />
         <Stat icon={<PinIcon size={14} />} value={`${(ui.coverage * 100).toFixed(0)}%`} title="Population within walking distance of a station" className="hidden sm:flex text-zinc-300" />
+        {scenario && (
+          <div className="hidden lg:flex items-center ml-1 mr-1 w-24 h-1.5 rounded-full bg-zinc-800 overflow-hidden" title={scenario.goal}>
+            <div className="h-full bg-amber-400 transition-all" style={{ width: `${scProgress * 100}%` }} />
+          </div>
+        )}
         <div className="ml-auto flex items-center gap-0.5 pl-2">
           <div className="hidden sm:flex rounded-lg overflow-hidden border border-zinc-800 mr-2" title="Map overlays">
             {OVERLAY_OPTIONS.map(([m, label]) => (

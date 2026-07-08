@@ -4,6 +4,7 @@
  */
 import type { Polyline, Vec2 } from './geometry';
 import type { RngState } from './rng';
+import type { ScenarioRules } from './scenarioRules';
 
 // ── World / fields ──────────────────────────────────────────────────────────
 
@@ -192,6 +193,14 @@ export interface GameState {
   activeEvents: import('./events').ActiveEvent[];
   /** earliest day a new event may start (enforces spacing between events) */
   nextEventDay: number;
+  /** optional scenario constraints (era starts, daily challenge, …) */
+  scenarioRules?: ScenarioRules;
+  /** stamped command stream for replay / anti-cheat (also in save) */
+  commandLog: { tick: number; cmd: Command }[];
+  /** consecutive days at/below approvalFloor */
+  lowApprovalDays: number;
+  /** why the run ended, if it failed */
+  failed: 'bankrupt' | 'approval' | 'time' | null;
 }
 
 // ── Commands (the only mutation API) ────────────────────────────────────────

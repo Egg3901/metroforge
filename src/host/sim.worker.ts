@@ -10,10 +10,11 @@ import { pointAlong } from '@core/geometry';
 import { newGame } from '@core/newGame';
 import { loadOsmCity } from '@core/city/osmRegistry';
 import { EVENT_DEFS } from '@core/events';
-import { deserialize, serialize } from '@core/save';
+import { deserialize, serialize, stateHash } from '@core/save';
 import { simTick } from '@core/sim';
 import { getRoutePath } from '@core/transit/routePath';
 import type { GameState } from '@core/types';
+import type { ScenarioRules } from '@core/scenarioRules';
 import { AgentPool } from './agents';
 import type { FromSim, ToSim, UiState } from './protocol';
 
@@ -21,6 +22,7 @@ let state: GameState | null = null;
 let speed = 1; // game-seconds per real second (1x = 1); UI offers 1/10/30/120
 let fieldsVersion = 1;
 let bankrupt = false;
+let initMeta: { presetKey?: string; size?: 'small' | 'medium' | 'large' } = {};
 const agents = new AgentPool();
 let lastFlowsRef: unknown = null;
 
@@ -151,7 +153,11 @@ function buildUi(s: GameState): UiState {
     }),
     activeEvents: s.activeEvents.map((a) => ({ id: a.id, name: EVENT_DEFS.find((e) => e.id === a.id)?.name ?? a.id, daysLeft: a.daysLeft })),
     fieldsVersion,
-    bankrupt,
+    bankrupt: bankrupt || s.failed === 'bankrupt',
+    failed: s.failed,
+    maxDay: s.scenarioRules?.maxDay ?? null,
+    eraLabel: s.scenarioRules?.eraLabel ?? null,
+    commandCount: s.commandLog.length,
   };
 }
 
@@ -226,7 +232,7 @@ function sendFrame(s: GameState): void {
 let accumulator = 0;
 let uiCountdown = 0;
 setInterval(() => {
-  if (!state || bankrupt) return;
+  if (!state || bankrupt || state.failed) return;
   accumulator += speed / 20;
   let ticksRun = 0;
   while (accumulator >= 1 && ticksRun < 400) {
@@ -236,9 +242,17 @@ setInterval(() => {
     for (const m of events.messages) post({ type: 'toast', message: m, tone: 'info' });
     for (const t of events.toasts ?? []) post({ type: 'toast', message: t.message, tone: t.tone });
     if (events.modeUnlocked) post({ type: 'toast', message: `${events.modeUnlocked} unlocked!`, tone: 'good' });
-    if (events.bankrupt) {
-      bankrupt = true;
-      post({ type: 'toast', message: 'Bankruptcy — the city has taken over your transit authority.', tone: 'warn' });
+    if (events.bankrupt || events.failed) {
+      bankrupt = events.bankrupt === true;
+      const reason = events.bankrupt ? 'bankrupt' : events.failed;
+      const copy =
+        reason === 'approval'
+          ? 'Approval collapsed — the board has fired you.'
+          : reason === 'time'
+            ? 'Time is up — the objective was not met.'
+            : 'Bankruptcy — the city has taken over your transit authority.';
+      post({ type: 'toast', message: copy, tone: 'warn' });
+      post({ type: 'ui', ui: buildUi(state) });
     }
     if (events.dayCompleted !== undefined && events.dayCompleted % 7 === 0) {
       fieldsVersion++;
@@ -264,8 +278,16 @@ self.onmessage = (e: MessageEvent<ToSim>) => {
   switch (msg.type) {
     case 'init':
       // real-city presets load their OSM bundle before generating
+      initMeta = {};
+      if (msg.presetKey !== undefined) initMeta.presetKey = msg.presetKey;
+      if (msg.size !== undefined) initMeta.size = msg.size;
       loadOsmCity(msg.presetKey).then((osm) => {
-        state = newGame(msg.seed, msg.difficulty, { size: msg.size, presetKey: msg.presetKey, osm });
+        state = newGame(msg.seed, msg.difficulty, {
+          size: msg.size,
+          presetKey: msg.presetKey,
+          osm,
+          rules: msg.rules as ScenarioRules | undefined,
+        });
         bankrupt = false;
         fieldsVersion++;
         sendStatic(state);
@@ -275,7 +297,7 @@ self.onmessage = (e: MessageEvent<ToSim>) => {
     case 'loadSave':
       try {
         state = deserialize(msg.json);
-        bankrupt = false;
+        bankrupt = state.failed === 'bankrupt';
         fieldsVersion++;
         sendStatic(state);
         post({ type: 'ui', ui: buildUi(state) });
@@ -285,6 +307,22 @@ self.onmessage = (e: MessageEvent<ToSim>) => {
       break;
     case 'requestSave':
       if (state) post({ type: 'saved', json: serialize(state) });
+      break;
+    case 'requestReplay':
+      if (state) {
+        const payload: import('./protocol').ReplayPayload = {
+          seed: state.seed,
+          difficulty: state.difficulty,
+          commandLog: state.commandLog,
+          finalTick: state.tick,
+          stateHash: stateHash(state),
+          scoreHint: Math.round(state.stats.dailyTransitTrips),
+        };
+        if (initMeta.presetKey !== undefined) payload.presetKey = initMeta.presetKey;
+        if (initMeta.size !== undefined) payload.size = initMeta.size;
+        if (state.scenarioRules) payload.rules = state.scenarioRules;
+        post({ type: 'replay', payload });
+      }
       break;
     case 'setSpeed':
       speed = msg.speed;

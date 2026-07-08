@@ -2,8 +2,9 @@
  * Main-thread facade over the sim worker. Promise-based command API +
  * event subscriptions for the renderer and React store.
  */
+import type { ScenarioRules } from '@core/scenarioRules';
 import type { Command, CommandResult, Difficulty, TransitMode } from '@core/types';
-import type { DemandPayload, FieldsPayload, FrameSnapshot, FromSim, StaticCity, ToSim, TrafficPayload, UiState } from './protocol';
+import type { DemandPayload, FieldsPayload, FrameSnapshot, FromSim, ReplayPayload, StaticCity, ToSim, TrafficPayload, UiState } from './protocol';
 
 export interface SimEvents {
   onReady: (city: StaticCity) => void;
@@ -14,12 +15,14 @@ export interface SimEvents {
   onUi: (ui: UiState) => void;
   onToast: (message: string, tone: 'info' | 'warn' | 'good') => void;
   onSaved: (json: string) => void;
+  onReplay: (payload: ReplayPayload) => void;
 }
 
 export class SimClient {
   private worker: Worker;
   private nextRequestId = 1;
   private pending = new Map<number, (v: unknown) => void>();
+  private replayWaiters: ((p: ReplayPayload) => void)[] = [];
   events: Partial<SimEvents> = {};
 
   constructor() {
@@ -51,6 +54,10 @@ export class SimClient {
         case 'saved':
           this.events.onSaved?.(msg.json);
           break;
+        case 'replay':
+          this.events.onReplay?.(msg.payload);
+          for (const w of this.replayWaiters.splice(0)) w(msg.payload);
+          break;
         case 'commandResult':
           this.pending.get(msg.requestId)?.(msg.result);
           this.pending.delete(msg.requestId);
@@ -67,8 +74,23 @@ export class SimClient {
     this.worker.postMessage(msg);
   }
 
-  init(seed: number, difficulty: Difficulty, opts?: { size?: 'small' | 'medium' | 'large' | undefined; presetKey?: string | undefined }): void {
-    this.send({ type: 'init', seed, difficulty, size: opts?.size, presetKey: opts?.presetKey });
+  init(
+    seed: number,
+    difficulty: Difficulty,
+    opts?: {
+      size?: 'small' | 'medium' | 'large' | undefined;
+      presetKey?: string | undefined;
+      rules?: ScenarioRules | undefined;
+    },
+  ): void {
+    this.send({
+      type: 'init',
+      seed,
+      difficulty,
+      size: opts?.size,
+      presetKey: opts?.presetKey,
+      rules: opts?.rules,
+    });
   }
 
   loadSave(json: string): void {
@@ -77,6 +99,13 @@ export class SimClient {
 
   requestSave(): void {
     this.send({ type: 'requestSave' });
+  }
+
+  requestReplay(): Promise<ReplayPayload> {
+    return new Promise((resolve) => {
+      this.replayWaiters.push(resolve);
+      this.send({ type: 'requestReplay' });
+    });
   }
 
   setSpeed(speed: number): void {

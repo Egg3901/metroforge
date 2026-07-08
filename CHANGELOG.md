@@ -7,9 +7,20 @@ All notable changes to MetroForge are documented here. Format follows
 ## [Unreleased]
 
 ### Added
-- **Guided first-city tutorial.** Five interactive steps (density → stations →
-  track → route → first riders) with auto tool/overlay selection, camera focus
-  on your build, skip, and replay from the home screen.
+- **Historical era scenarios.** NYC 1904, Boston 1897, Chicago 1892, Cleveland
+  1955, Atlanta 1979, LA 1963 — each with locked starting modes, era budgets,
+  day limits, and approval floors.
+- **Goal-based mode unlocks.** Tram / metro / rail unlock from ridership, share,
+  or coverage (population remains a fallback); era scenarios can freeze the kit.
+- **Real failure.** Approval-floor and time-limit losses join bankruptcy; unified
+  fail overlay returns to the menu.
+- **Daily challenge.** Shared UTC-date seed + tightened clock; home-screen Daily
+  tab with today's board.
+- **Command log + replay scores.** Every successful command is stamped; wins
+  submit `seed` / `stateHash` / `commandLog` for audit. Server stores the
+  envelope and rejects stale daily seeds.
+- **Guided first-city tutorial.** Five interactive steps with auto tool/overlay,
+  camera focus, skip, and home-screen replay.
 - **Typography.** Fraunces display + DM Sans for UI and map labels.
 - **Parallel corridor bundling.** Shared track corridors offset so overlapping
   lines read as distinct ribbons.
@@ -22,6 +33,8 @@ All notable changes to MetroForge are documented here. Format follows
 - Muted road hierarchy so the transit network stays the visual hero.
 - Tutorial coaching copy is more action-led; active tool button gets a stronger
   highlight while learning.
+- HUD shows era label, day/limit countdown, and live scenario progress.
+- Scenario picker is now Eras; Daily is the default home tab.
 
 ## [1.1.0] - 2026-07-08
 

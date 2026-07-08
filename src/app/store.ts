@@ -24,30 +24,24 @@ interface AppState {
   mode: TransitMode;
   speed: number;
   started: boolean;
-  /** track tool: origin station + waypoints in progress */
   trackFrom: number | null;
   trackWaypoints: { x: number; y: number }[];
   trackCostEstimate: number | null;
-  /** route tool: station ids clicked so far */
   routeStops: number[];
   selectedStationId: number | null;
   selectedRouteId: number | null;
   toasts: Toast[];
   panel: 'none' | 'budget' | 'station' | 'route' | 'goals' | 'routes';
   overlay: OverlayMode;
-  /** ids of completed progression goals */
   completedGoals: string[];
-  /** active scenario + whether its objective has been met */
   scenario: Scenario | null;
   won: boolean;
-  /** best stars earned per scenarioId (campaign progression) */
+  /** seed used for the active run (for daily / replay) */
+  runSeed: number | null;
   stars: StarMap;
-  /** stars awarded to the active run so far (for the win overlay) */
   runStars: number;
-  /** signed-in account (for leaderboards), or null */
   account: Account | null;
   setAccount: (a: Account | null) => void;
-  /** guided first-city tutorial */
   tutorialActive: boolean;
   tutorialStep: number;
   advanceTutorial: () => void;
@@ -68,12 +62,27 @@ interface AppState {
 }
 
 let toastId = 1;
+let scorePosted = false;
+
+async function postVerifiedScore(sc: Scenario, ui: UiState, client: SimClient, token: string, pushToast: AppState['pushToast']): Promise<void> {
+  try {
+    const replay = await client.requestReplay();
+    await submitScore(token, {
+      scenario: sc.scenarioId,
+      value: sc.score(ui),
+      city: sc.city,
+      replay,
+    });
+    pushToast('Score posted (replay verified)', 'good');
+  } catch {
+    pushToast('Could not post score', 'warn');
+  }
+}
 
 export const useStore = create<AppState>((set, get) => {
   const client = new SimClient();
 
   client.events.onUi = (ui) => {
-    // celebrate any newly-completed goals
     const prev = get().completedGoals;
     const done = completedGoalIds(ui);
     if (done.length > prev.length) {
@@ -87,25 +96,32 @@ export const useStore = create<AppState>((set, get) => {
     } else {
       set({ ui });
     }
-    // scenario progress → win + stars (1 at goal, 2 at 1.3x, 3 at 1.7x)
+
+    // sync mode if current mode got locked out (era starts)
+    if (!ui.unlockedModes.includes(get().mode) && ui.unlockedModes[0]) {
+      set({ mode: ui.unlockedModes[0]! });
+    }
+
     const sc = get().scenario;
-    if (sc) {
+    if (sc && !ui.failed) {
       const p = sc.progress(ui);
       if (!get().won && p >= 1) {
         set({ won: true });
         const acct = get().account;
-        if (acct) {
-          submitScore(acct.token, sc.scenarioId, Math.round(ui.dailyTransitTrips), sc.city)
-            .then(() => get().pushToast('Score posted to the leaderboard', 'good'))
-            .catch(() => {});
+        if (acct && !scorePosted) {
+          scorePosted = true;
+          void postVerifiedScore(sc, ui, client, acct.token, get().pushToast);
         }
       }
-      const earned = starsForProgress(p);
-      if (earned > (get().stars[sc.scenarioId] ?? 0)) {
-        set({ stars: recordStars(sc.scenarioId, earned), runStars: Math.max(earned, get().runStars) });
-        get().pushToast(`${'★'.repeat(earned)} ${sc.city}: ${earned} star${earned > 1 ? 's' : ''}`, 'good');
-      } else if (earned > get().runStars) {
-        set({ runStars: earned });
+      // campaign stars only for non-daily scenarios
+      if (!sc.scenarioId.startsWith('daily-')) {
+        const earned = starsForProgress(p);
+        if (earned > (get().stars[sc.scenarioId] ?? 0)) {
+          set({ stars: recordStars(sc.scenarioId, earned), runStars: Math.max(earned, get().runStars) });
+          get().pushToast(`${'★'.repeat(earned)} ${sc.city}: ${earned} star${earned > 1 ? 's' : ''}`, 'good');
+        } else if (earned > get().runStars) {
+          set({ runStars: earned });
+        }
       }
     }
   };
@@ -134,6 +150,7 @@ export const useStore = create<AppState>((set, get) => {
     completedGoals: [],
     scenario: null,
     won: false,
+    runSeed: null,
     stars: loadStars(),
     runStars: 0,
     account: loadAccount(),
@@ -166,6 +183,7 @@ export const useStore = create<AppState>((set, get) => {
     },
     setUi: (ui) => set({ ui }),
     start: (seed, difficulty, opts) => {
+      scorePosted = false;
       client.init(seed, difficulty, opts);
       const teach = !loadTutorialDone();
       set({
@@ -174,6 +192,7 @@ export const useStore = create<AppState>((set, get) => {
         scenario: null,
         won: false,
         runStars: 0,
+        runSeed: seed,
         tutorialActive: teach,
         tutorialStep: 0,
         overlay: teach ? 'density' : 'none',
@@ -182,19 +201,22 @@ export const useStore = create<AppState>((set, get) => {
       });
     },
     startScenario: (s, seed) => {
-      client.init(seed, s.difficulty, { size: s.size, presetKey: s.cityKey });
-      const teach = !loadTutorialDone();
+      scorePosted = false;
+      client.init(seed, s.difficulty, { size: s.size, presetKey: s.cityKey, rules: s.rules });
+      const teach = !loadTutorialDone() && !s.scenarioId.startsWith('daily-');
+      const startMode = s.rules.startingModes[0] ?? 'bus';
       set({
         started: true,
         completedGoals: [],
         scenario: s,
         won: false,
         runStars: 0,
+        runSeed: seed,
         tutorialActive: teach,
         tutorialStep: 0,
         overlay: teach ? 'density' : 'none',
         tool: 'select',
-        mode: 'bus',
+        mode: startMode,
       });
     },
     pushToast: (message, tone) => {
