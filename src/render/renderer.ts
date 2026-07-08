@@ -489,37 +489,30 @@ export class GameRenderer {
       for (let px = 0; px < W * PX; px++) {
         const fx = px / PX - 0.5;
         const fy = py / PX - 0.5;
-        const cx = Math.max(0, Math.min(W - 1, Math.round(fx)));
-        const cy = Math.max(0, Math.min(H - 1, Math.round(fy)));
         const wxw = city.originX + (px / PX) * city.cellSize;
         const wyw = city.originY + (py / PX) * city.cellSize;
         const wf = hiWater ? sampleMask(hiWater, wxw, wyw) : bil(wsm, fx, fy); // 0..1 water
         let r: number, g: number, b: number;
         if (wf > 0.5) {
-          // elegant water: shallower at the shore, plus a gentle stylized ripple
+          // clean flat water — a touch lighter at the shore, no noise
           const shallow = Math.max(0, Math.min(1, 1 - (wf - 0.5) / 0.22));
           const col = mix(PAL.waterDeep, PAL.waterShallow, shallow);
-          const ripple = Math.sin(wyw / 190 + hash(cx, cy) * 6.28) * 2.2 + (hash(px + 5, py * 2) - 0.5) * 4;
-          r = col[0] + ripple; g = col[1] + ripple * 1.1; b = col[2] + ripple * 1.3;
+          r = col[0]; g = col[1]; b = col[2];
         } else {
           const park = hiPark ? sampleMask(hiPark, wxw, wyw) : bil(f.parks, fx, fy);
-          const pop = bil(f.population, fx, fy) / maxPop;
-          const urban = Math.sqrt(Math.max(0, pop)); // downtown reads as a lighter mass
-          // land: deep neutral, lifting a touch toward a warm urban tone with density.
-          let col = mix(PAL.land, PAL.landUrban, Math.min(1, urban));
-          // real building fabric — sharpened mask edge so blocks read crisply
-          if (hiBuilding && park < 0.35) {
-            const bfs = Math.max(0, Math.min(1, (sampleMask(hiBuilding, wxw, wyw) - 0.28) / 0.28));
-            if (bfs > 0) col = mix(col, mix(PAL.building, PAL.buildingDense, Math.min(1, urban)), bfs);
+          // FLAT land base — no procedural-density tint (that noisy field caused the
+          // soft blobs). Structure comes from the real, crisp building + park masks.
+          let col: [number, number, number] = [PAL.land[0], PAL.land[1], PAL.land[2]];
+          // real building fabric — sharpened mask edge so blocks read as crisp blocks
+          if (hiBuilding && park < 0.4) {
+            const bfs = Math.max(0, Math.min(1, (sampleMask(hiBuilding, wxw, wyw) - 0.3) / 0.25));
+            if (bfs > 0) col = mix(col, PAL.building, bfs);
           }
-          // parks (crisp edge for real cities)
-          if (park > 0.15) col = mix(col, PAL.park, Math.max(0, Math.min(1, (park - 0.15) / 0.25)));
-          // warm sand just landward of the water, then a thin luminous shore line
-          if (wf > 0.3 && wf <= 0.46) col = mix(col, PAL.sand, ((wf - 0.3) / 0.16) * 0.5);
+          // parks — only solid green space (not scattered tree patches), crisp edge
+          if (park > 0.35) col = mix(col, PAL.park, Math.max(0, Math.min(1, (park - 0.35) / 0.2)));
+          // a thin luminous shore line just landward of the water
           if (wf > 0.42) col = mix(col, PAL.shoreLine, Math.min(1, (wf - 0.42) / 0.08) * 0.4);
-          // just a whisper of per-pixel grain so flats don't band; real detail
-          // comes from the crisp tiling texture overlay, not this bake
-          const grain = (hash(px, py) - 0.5) * 2.5;
+          const grain = (hash(px, py) - 0.5) * 2;
           r = col[0] + grain; g = col[1] + grain; b = col[2] + grain;
         }
         const o = (py * W * PX + px) * 4;
@@ -579,8 +572,8 @@ export class GameRenderer {
     const hgt = city.fieldH * city.cellSize;
     if (!this.detailSprite) {
       this.detailSprite = new TilingSprite({ texture: this.detailTex, width: w, height: hgt });
-      this.detailSprite.tileScale.set(0.7); // 256px tile → ~180 world units (m)
-      this.detailSprite.alpha = 0.5;
+      this.detailSprite.tileScale.set(0.42); // finer grain
+      this.detailSprite.alpha = 0.3;
       const idx = this.groundSprite ? this.world.getChildIndex(this.groundSprite) + 1 : 1;
       this.world.addChildAt(this.detailSprite, idx);
     }

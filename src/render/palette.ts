@@ -17,8 +17,8 @@ export const PALETTE = {
   void: 0x0b0d10,
 
   // ── base map (recedes) ──
-  /** low-density land */
-  land: [22, 27, 26] as RGB,
+  /** low-density land — neutral dark (not green; green is reserved for parks) */
+  land: [27, 29, 30] as RGB,
   /** dense urban fabric — downtown reads as a lighter warm-neutral mass */
   landUrban: [48, 50, 47] as RGB,
   /** deep water */
@@ -31,8 +31,8 @@ export const PALETTE = {
   sand: [74, 66, 49] as RGB,
   /** parks / green space */
   park: [30, 48, 37] as RGB,
-  /** real building-footprint fabric — a quiet lift off the land tone */
-  building: [44, 47, 44] as RGB,
+  /** real building-footprint fabric — a clean neutral lift off the land tone */
+  building: [48, 50, 51] as RGB,
   buildingDense: [58, 60, 55] as RGB,
 
   // ── roads — clearly lighter than the building fabric so streets read ──
