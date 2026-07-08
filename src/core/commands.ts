@@ -75,6 +75,7 @@ export function applyCommand(state: GameState, cmd: Command): CommandResult {
         mode: cmd.mode,
         level: 1,
         ridership: 0,
+        alightings: 0,
         buildTick: state.tick,
       });
       state.budget.cash -= cost;

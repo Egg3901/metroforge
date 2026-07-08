@@ -7,7 +7,7 @@ import type { Scenario } from './scenarios';
 import { loadAccount, submitScore, type Account } from './api';
 
 export type Tool = 'select' | 'station' | 'track' | 'route' | 'bulldoze';
-export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic';
+export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic' | 'unserved';
 
 export interface Toast {
   id: number;

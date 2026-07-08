@@ -114,6 +114,16 @@ export function StationPanel(): React.JSX.Element | null {
               <div className="h-1.5 mt-1 rounded-full bg-zinc-800 overflow-hidden">
                 <div className="h-full rounded-full" style={{ width: `${crowd * 100}%`, background: crowd > 0.8 ? '#fb7185' : crowd > 0.5 ? '#fbbf24' : '#34d399' }} />
               </div>
+              <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                <div className="bg-zinc-800/60 rounded p-1.5">
+                  <div className="text-zinc-500">Boarding here</div>
+                  <div className="text-sky-300 font-mono">{Math.round(station.ridership).toLocaleString()}/day</div>
+                </div>
+                <div className="bg-zinc-800/60 rounded p-1.5">
+                  <div className="text-zinc-500">Arriving here</div>
+                  <div className="text-violet-300 font-mono">{Math.round(station.alightings).toLocaleString()}/day</div>
+                </div>
+              </div>
             </div>
           );
         })()}

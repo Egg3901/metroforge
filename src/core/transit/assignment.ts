@@ -19,6 +19,9 @@ const TRIP_RATE = 0.9; // transit-relevant trips per resident per day
 const DEST_KERNEL = 3600; // meters, destination-choice distance decay
 const MAX_DESTS_PER_ORIGIN = 14;
 const MAX_TRANSIT_COST_MIN = 90; // beyond this nobody rides
+const UNSERVED_SHARE_MAX = 0.35; // pairs served worse than this are "unserved"
+const MIN_UNSERVED_TRIPS = 40; // ignore trickles so the overlay shows real gaps
+const MAX_UNSERVED_LINES = 60; // keep the overlay legible
 
 interface NodeEdge {
   to: number;
@@ -155,12 +158,27 @@ export interface CarFlow {
   carTrips: number;
 }
 
+/** An origin→destination pair whose trips overwhelmingly drive because transit
+ *  serves them poorly (no path, or the path is far slower than driving). The
+ *  weight is the daily car trips on the pair; `share` is the transit mode share
+ *  achieved (low = badly served). Drives the unserved-demand overlay. */
+export interface UnservedDesire {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  weight: number;
+  share: number;
+}
+
 export interface AssignmentOutput {
   flows: FlowResult[];
   carFlows: CarFlow[];
   routeRidership: Map<number, number>;
   routeRevenue: Map<number, number>;
   stationBoardings: Map<number, number>;
+  stationAlightings: Map<number, number>;
+  unserved: UnservedDesire[];
   dailyTransitTrips: number;
   dailyCarTrips: number;
 }
@@ -173,8 +191,19 @@ export function runAssignment(state: GameState): AssignmentOutput {
   const routeRidership = new Map<number, number>();
   const routeRevenue = new Map<number, number>();
   const stationBoardings = new Map<number, number>();
+  const stationAlightings = new Map<number, number>();
+  const unserved: UnservedDesire[] = [];
   let dailyTransitTrips = 0;
   let dailyCarTrips = 0;
+
+  const recordUnserved = (origin: District, dest: District, pairTrips: number, share: number): void => {
+    if (pairTrips < MIN_UNSERVED_TRIPS || share >= UNSERVED_SHARE_MAX) return;
+    unserved.push({
+      x1: origin.centroid.x, y1: origin.centroid.y,
+      x2: dest.centroid.x, y2: dest.centroid.y,
+      weight: pairTrips * (1 - share), share,
+    });
+  };
 
   // access lists: district -> [(stationId, walkMinutes)]
   const access = new Map<number, { stationId: number; walkMin: number }[]>();
@@ -265,11 +294,13 @@ export function runAssignment(state: GameState): AssignmentOutput {
       if (bestStreet < 0 || !isFinite(transitCost) || transitCost > MAX_TRANSIT_COST_MIN) {
         dailyCarTrips += pairTrips;
         carFlows.push({ originDistrict: origin.id, destDistrict: dest.id, carTrips: pairTrips });
+        recordUnserved(origin, dest, pairTrips, 0);
         continue;
       }
 
       // logit split
       const share = 1 / (1 + Math.exp((transitCost - carMin) / LOGIT_THETA));
+      recordUnserved(origin, dest, pairTrips, share);
       const transitTrips = pairTrips * share;
       const carTrips = pairTrips - transitTrips;
       if (transitTrips < 1) {
@@ -318,8 +349,16 @@ export function runAssignment(state: GameState): AssignmentOutput {
       if (firstStation !== undefined) {
         stationBoardings.set(firstStation, (stationBoardings.get(firstStation) ?? 0) + transitTrips);
       }
+      const lastStation = stationIds[stationIds.length - 1];
+      if (lastStation !== undefined && lastStation !== firstStation) {
+        stationAlightings.set(lastStation, (stationAlightings.get(lastStation) ?? 0) + transitTrips);
+      }
     }
   }
 
-  return { flows, carFlows, routeRidership, routeRevenue, stationBoardings, dailyTransitTrips, dailyCarTrips };
+  // keep only the biggest gaps so the overlay stays readable
+  unserved.sort((a, b) => b.weight - a.weight);
+  unserved.length = Math.min(unserved.length, MAX_UNSERVED_LINES);
+
+  return { flows, carFlows, routeRidership, routeRevenue, stationBoardings, stationAlightings, unserved, dailyTransitTrips, dailyCarTrips };
 }

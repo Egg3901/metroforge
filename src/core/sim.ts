@@ -152,7 +152,10 @@ export function refreshAssignment(state: GameState): void {
     // rolling blend so numbers move smoothly
     const target = result.stationBoardings.get(s.id) ?? 0;
     s.ridership = s.ridership * 0.5 + target * 0.5;
+    const alight = result.stationAlightings.get(s.id) ?? 0;
+    s.alightings = (s.alightings ?? 0) * 0.5 + alight * 0.5;
   }
+  state.unserved = result.unserved;
   // coverage: fraction of population within walk radius of any station
   let covered = 0;
   let totalPop = 0;

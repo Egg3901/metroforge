@@ -4,13 +4,13 @@
  * Reads snapshots only — never touches sim state.
  */
 import { Application, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
-import type { FieldsPayload, FrameSnapshot, StaticCity, TrafficPayload, UiState } from '@host/protocol';
+import type { DemandPayload, FieldsPayload, FrameSnapshot, StaticCity, TrafficPayload, UiState } from '@host/protocol';
 import type { TransitMode } from '@core/types';
 import { PALETTE as PAL, MODE_COLOR, mix } from './palette';
 
 const MODE_STATION_COLOR: Record<TransitMode, number> = MODE_COLOR;
 
-export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic';
+export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic' | 'unserved';
 
 export interface GhostState {
   kind: 'none' | 'station' | 'track' | 'route';
@@ -44,9 +44,11 @@ export class GameRenderer {
   private overlaySprite: Sprite | null = null;
   private coverageG = new Graphics();
   private trafficRoadsG = new Graphics();
+  private demandG = new Graphics();
   private hotspotsG = new Graphics();
   private overlayMode: OverlayMode = 'none';
   private traffic: TrafficPayload | null = null;
+  private demand: DemandPayload | null = null;
   private flowG = new Graphics();
   private vehiclesG = new Graphics();
   private agentsG = new Graphics();
@@ -84,7 +86,7 @@ export class GameRenderer {
       autoDensity: true,
     });
     host.appendChild(this.app.canvas);
-    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.trafficRoadsG, this.tracksG, this.routesG, this.coverageG, this.hotspotsG, this.flowG, this.mapLabels, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
+    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.trafficRoadsG, this.tracksG, this.routesG, this.coverageG, this.demandG, this.hotspotsG, this.flowG, this.mapLabels, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
     this.app.stage.addChild(this.world);
     this.attachInput(this.app.canvas);
     this.app.ticker.add(() => this.tick());
@@ -118,6 +120,11 @@ export class GameRenderer {
   setTraffic(payload: TrafficPayload): void {
     this.traffic = payload;
     if (this.overlayMode === 'traffic') this.bakeOverlay();
+  }
+
+  setDemand(payload: DemandPayload): void {
+    this.demand = payload;
+    if (this.overlayMode === 'unserved') this.bakeOverlay();
   }
 
   setUi(ui: UiState): void {
@@ -162,10 +169,16 @@ export class GameRenderer {
     const f = this.fieldsPayload;
     this.coverageG.clear();
     this.trafficRoadsG.clear();
+    this.demandG.clear();
     if (this.overlaySprite) {
       this.overlaySprite.visible = false;
     }
     if (!city || !f || this.overlayMode === 'none') return;
+
+    if (this.overlayMode === 'unserved') {
+      this.bakeDemand();
+      return;
+    }
 
     if (this.overlayMode === 'coverage') {
       const ui = this.ui;
@@ -291,6 +304,31 @@ export class GameRenderer {
         g.lineTo(bx, by);
         g.stroke({ width: w, color: ramp(v), alpha: 0.55 + v * 0.4, cap: 'round' });
       }
+    }
+  }
+
+  /** Unserved-demand overlay: glowing desire lines between origin/destination
+   *  centroids of trips that mostly drive because transit serves them poorly.
+   *  Thicker + brighter = more people you could be carrying. */
+  private bakeDemand(): void {
+    const g = this.demandG;
+    g.clear();
+    const d = this.demand;
+    if (!d || d.lines.length === 0 || d.maxWeight <= 0) return;
+    for (const l of d.lines) {
+      const t = Math.min(1, l.weight / d.maxWeight);
+      if (t < 0.05) continue;
+      const width = 2 + t * 10;
+      // amber (small gap) → hot pink/red (big gap you're missing)
+      const color = t > 0.6 ? 0xff2d78 : t > 0.3 ? 0xff6b3d : 0xffb020;
+      // soft halo then a brighter core
+      g.moveTo(l.x1, l.y1); g.lineTo(l.x2, l.y2);
+      g.stroke({ width: width * 2, color, alpha: 0.12 + t * 0.12, cap: 'round' });
+      g.moveTo(l.x1, l.y1); g.lineTo(l.x2, l.y2);
+      g.stroke({ width, color, alpha: 0.4 + t * 0.4, cap: 'round' });
+      // endpoint dots
+      g.circle(l.x1, l.y1, width * 0.6); g.fill({ color, alpha: 0.6 });
+      g.circle(l.x2, l.y2, width * 0.6); g.fill({ color, alpha: 0.6 });
     }
   }
 

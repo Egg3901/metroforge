@@ -3,12 +3,13 @@
  * event subscriptions for the renderer and React store.
  */
 import type { Command, CommandResult, Difficulty, TransitMode } from '@core/types';
-import type { FieldsPayload, FrameSnapshot, FromSim, StaticCity, ToSim, TrafficPayload, UiState } from './protocol';
+import type { DemandPayload, FieldsPayload, FrameSnapshot, FromSim, StaticCity, ToSim, TrafficPayload, UiState } from './protocol';
 
 export interface SimEvents {
   onReady: (city: StaticCity) => void;
   onFields: (payload: FieldsPayload) => void;
   onTraffic: (payload: TrafficPayload) => void;
+  onDemand: (payload: DemandPayload) => void;
   onFrame: (snapshot: FrameSnapshot) => void;
   onUi: (ui: UiState) => void;
   onToast: (message: string, tone: 'info' | 'warn' | 'good') => void;
@@ -34,6 +35,9 @@ export class SimClient {
           break;
         case 'traffic':
           this.events.onTraffic?.(msg.payload);
+          break;
+        case 'demand':
+          this.events.onDemand?.(msg.payload);
           break;
         case 'frame':
           this.events.onFrame?.(msg.snapshot);

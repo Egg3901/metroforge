@@ -13,6 +13,7 @@ export interface UiStation {
   mode: TransitMode;
   level: number;
   ridership: number;
+  alightings: number;
 }
 
 export interface UiTrack {
@@ -123,10 +124,18 @@ export interface TrafficPayload {
   hotspots: { x: number; y: number; severity: number }[];
 }
 
+/** Unserved-demand desire lines: OD pairs that mostly drive because transit
+ *  serves them poorly. Coords are world-space; weight ∝ car trips. */
+export interface DemandPayload {
+  lines: { x1: number; y1: number; x2: number; y2: number; weight: number; share: number }[];
+  maxWeight: number;
+}
+
 export type FromSim =
   | { type: 'ready'; staticCity: StaticCity }
   | { type: 'fields'; payload: FieldsPayload }
   | { type: 'traffic'; payload: TrafficPayload }
+  | { type: 'demand'; payload: DemandPayload }
   | { type: 'frame'; snapshot: FrameSnapshot }
   | { type: 'ui'; ui: UiState }
   | { type: 'commandResult'; requestId: number; result: CommandResult }

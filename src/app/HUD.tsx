@@ -21,6 +21,7 @@ const OVERLAY_OPTIONS: [OverlayMode, string][] = [
   ['value', 'Value'],
   ['coverage', 'Reach'],
   ['nimby', 'NIMBY'],
+  ['unserved', 'Gaps'],
 ];
 
 const fmtMoney = (v: number): string => {

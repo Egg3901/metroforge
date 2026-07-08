@@ -91,6 +91,7 @@ function buildUi(s: GameState): UiState {
       mode: st.mode,
       level: st.level,
       ridership: st.ridership,
+      alightings: st.alightings ?? 0,
     })),
     tracks: s.tracks.map((t) => ({
       id: t.id,
@@ -144,6 +145,13 @@ function sendTraffic(s: GameState): void {
     },
     [values.buffer],
   );
+}
+
+function sendDemand(s: GameState): void {
+  const lines = s.unserved ?? [];
+  let maxWeight = 0;
+  for (const l of lines) if (l.weight > maxWeight) maxWeight = l.weight;
+  post({ type: 'demand', payload: { lines: lines.map((l) => ({ ...l })), maxWeight } });
 }
 
 function sendFrame(s: GameState): void {
@@ -212,6 +220,7 @@ setInterval(() => {
     lastFlowsRef = state.flows;
     agents.resample(state);
     sendTraffic(state); // congestion recomputed with the flows
+    sendDemand(state); // unserved-demand desire lines, same cadence
   }
   agents.update(speed / 20);
   sendFrame(state);
