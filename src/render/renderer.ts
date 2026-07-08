@@ -14,6 +14,8 @@ const MODE_STATION_COLOR: Record<TransitMode, number> = {
   rail: 0x8ce38f,
 };
 
+export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby';
+
 export interface GhostState {
   kind: 'none' | 'station' | 'track' | 'route';
   points: { x: number; y: number }[];
@@ -40,6 +42,9 @@ export class GameRenderer {
   private stationsG = new Graphics();
   private labels = new Container();
   private carsG = new Graphics();
+  private overlaySprite: Sprite | null = null;
+  private coverageG = new Graphics();
+  private overlayMode: OverlayMode = 'none';
   private vehiclesG = new Graphics();
   private agentsG = new Graphics();
   private ghostG = new Graphics();
@@ -69,7 +74,7 @@ export class GameRenderer {
       preference: 'webgl',
     });
     host.appendChild(this.app.canvas);
-    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.carsG, this.tracksG, this.routesG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
+    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.carsG, this.tracksG, this.routesG, this.coverageG, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
     this.app.stage.addChild(this.world);
     this.attachInput(this.app.canvas);
     this.app.ticker.add(() => this.tick());
@@ -95,6 +100,7 @@ export class GameRenderer {
     this.fieldsPayload = payload;
     this.bakeGround(payload);
     this.drawBuildings();
+    if (this.overlayMode !== 'none') this.bakeOverlay();
   }
 
   setUi(ui: UiState): void {
@@ -111,6 +117,10 @@ export class GameRenderer {
       this.drawTracks();
       this.drawRoutes();
       this.drawStations();
+      if (this.overlayMode === 'coverage') {
+        this.overlayMode = 'none'; // force rebake with fresh stations
+        this.setOverlay('coverage');
+      }
     }
   }
 
@@ -120,6 +130,100 @@ export class GameRenderer {
 
   setGhost(g: GhostState): void {
     this.ghost = g;
+  }
+
+  setOverlay(mode: OverlayMode): void {
+    if (mode === this.overlayMode) return;
+    this.overlayMode = mode;
+    this.bakeOverlay();
+  }
+
+  /** Data overlays: heatmap sprite for field layers, circles for coverage. */
+  private bakeOverlay(): void {
+    const city = this.city;
+    const f = this.fieldsPayload;
+    this.coverageG.clear();
+    if (this.overlaySprite) {
+      this.overlaySprite.visible = false;
+    }
+    if (!city || !f || this.overlayMode === 'none') return;
+
+    if (this.overlayMode === 'coverage') {
+      const ui = this.ui;
+      if (!ui) return;
+      const walkR: Record<string, number> = { bus: 450, tram: 600, metro: 800, rail: 1000 };
+      for (const st of ui.stations) {
+        this.coverageG.circle(st.x, st.y, walkR[st.mode] ?? 500);
+        this.coverageG.fill({ color: 0x30c48d, alpha: 0.18 });
+        this.coverageG.circle(st.x, st.y, walkR[st.mode] ?? 500);
+        this.coverageG.stroke({ width: 8, color: 0x30c48d, alpha: 0.5 });
+      }
+      return;
+    }
+
+    const W = city.fieldW;
+    const H = city.fieldH;
+    const PX = 4;
+    const canvas = document.createElement('canvas');
+    canvas.width = W * PX;
+    canvas.height = H * PX;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const img = ctx.createImageData(W * PX, H * PX);
+    const data = img.data;
+    let src: Float32Array;
+    let color: [number, number, number];
+    if (this.overlayMode === 'density') {
+      src = f.population;
+      color = [255, 170, 40];
+    } else if (this.overlayMode === 'value') {
+      src = f.landValue;
+      color = [80, 170, 255];
+    } else {
+      src = new Float32Array(W * H);
+      // nimby stored 0..100; reuse landValue scale trick below via max
+      for (let i = 0; i < src.length; i++) src[i] = 0;
+      color = [255, 90, 90];
+    }
+    // note: nimby field isn't shipped in the payload yet; approximate with
+    // high-value low-density cells (same rule the sim uses)
+    let max = 1e-6;
+    const val = (i: number): number => {
+      if (this.overlayMode === 'nimby') {
+        const lv = f.landValue[i] as number;
+        const pop = f.population[i] as number;
+        return lv > 1.1 && pop < 40 ? lv - 1 : 0;
+      }
+      return src[i] as number;
+    };
+    for (let i = 0; i < W * H; i++) max = Math.max(max, val(i));
+    for (let py = 0; py < H * PX; py++) {
+      for (let px = 0; px < W * PX; px++) {
+        const i = Math.floor(py / PX) * W + Math.floor(px / PX);
+        const t = Math.pow(val(i) / max, 0.6);
+        const o = (py * W * PX + px) * 4;
+        data[o] = color[0];
+        data[o + 1] = color[1];
+        data[o + 2] = color[2];
+        data[o + 3] = Math.round(t * 175);
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const tex = Texture.from(canvas);
+    if (this.overlaySprite) {
+      this.overlaySprite.texture.destroy(true);
+      this.overlaySprite.texture = tex;
+      this.overlaySprite.visible = true;
+    } else {
+      this.overlaySprite = new Sprite(tex);
+      // insert just under the coverage layer so it sits above roads/buildings
+      const idx = this.world.getChildIndex(this.coverageG);
+      this.world.addChildAt(this.overlaySprite, idx);
+    }
+    this.overlaySprite.x = city.originX;
+    this.overlaySprite.y = city.originY;
+    this.overlaySprite.width = W * city.cellSize;
+    this.overlaySprite.height = H * city.cellSize;
   }
 
   // ── coordinate transforms ──────────────────────────────────────────────────

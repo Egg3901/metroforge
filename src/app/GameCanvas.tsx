@@ -193,7 +193,10 @@ export function GameCanvas(): React.JSX.Element {
     };
     window.addEventListener('keydown', onKey);
 
-    const unsub = useStore.subscribe(() => updateGhost());
+    const unsub = useStore.subscribe((st) => {
+      updateGhost();
+      rendererRef.current?.setOverlay(st.overlay);
+    });
 
     return () => {
       disposed = true;

@@ -1,5 +1,6 @@
 import { CoinsIcon, PeopleIcon, PinIcon, ShareIcon, ThumbIcon } from './icons';
 import { useStore } from './store';
+import type { OverlayMode } from './store';
 
 const fmtMoney = (v: number): string => {
   const abs = Math.abs(v);
@@ -35,6 +36,8 @@ export function HUD(): React.JSX.Element | null {
   const speed = useStore((s) => s.speed);
   const setSpeed = useStore((s) => s.setSpeed);
   const setPanel = useStore((s) => s.setPanel);
+  const overlay = useStore((s) => s.overlay);
+  const setOverlay = useStore((s) => s.setOverlay);
   const client = useStore((s) => s.client);
   if (!ui) return null;
 
@@ -61,6 +64,19 @@ export function HUD(): React.JSX.Element | null {
         <Stat icon={<ShareIcon size={14} />} value={`${(ui.transitShare * 100).toFixed(1)}%`} title="Transit mode share" className="hidden sm:flex text-zinc-300" />
         <Stat icon={<PinIcon size={14} />} value={`${(ui.coverage * 100).toFixed(0)}%`} title="Population within walking distance of a station" className="hidden sm:flex text-zinc-300" />
         <div className="ml-auto flex items-center gap-0.5 pl-2">
+          <div className="hidden sm:flex rounded-lg overflow-hidden border border-zinc-800 mr-2" title="Map overlays">
+            {([['none', 'Map'], ['density', 'Pop'], ['value', 'Value'], ['coverage', 'Reach'], ['nimby', 'NIMBY']] as [OverlayMode, string][]).map(([m, label]) => (
+              <button
+                key={m}
+                onClick={() => setOverlay(m)}
+                className={`px-2 py-1 text-xs font-semibold ${
+                  overlay === m ? 'bg-sky-500 text-zinc-950' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-100'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="flex rounded-lg overflow-hidden border border-zinc-800">
             {[0, 1, 10, 60].map((s) => (
               <button

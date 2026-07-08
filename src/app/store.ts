@@ -4,6 +4,7 @@ import type { UiState } from '@host/protocol';
 import { SimClient } from '@host/client';
 
 export type Tool = 'select' | 'station' | 'track' | 'route' | 'bulldoze';
+export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby';
 
 export interface Toast {
   id: number;
@@ -28,6 +29,7 @@ interface AppState {
   selectedRouteId: number | null;
   toasts: Toast[];
   panel: 'none' | 'budget' | 'station' | 'route';
+  overlay: OverlayMode;
 
   setTool: (t: Tool) => void;
   setMode: (m: TransitMode) => void;
@@ -39,6 +41,7 @@ interface AppState {
   cancelPending: () => void;
   select: (kind: 'station' | 'route' | null, id: number | null) => void;
   setPanel: (p: AppState['panel']) => void;
+  setOverlay: (o: OverlayMode) => void;
 }
 
 let toastId = 1;
@@ -68,6 +71,7 @@ export const useStore = create<AppState>((set, get) => {
     selectedRouteId: null,
     toasts: [],
     panel: 'none',
+    overlay: 'none',
 
     setTool: (tool) => set({ tool, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
     setMode: (mode) => set({ mode, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
@@ -94,5 +98,6 @@ export const useStore = create<AppState>((set, get) => {
         panel: kind === 'station' ? 'station' : kind === 'route' ? 'route' : 'none',
       }),
     setPanel: (panel) => set({ panel }),
+    setOverlay: (overlay) => set({ overlay }),
   };
 });
