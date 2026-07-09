@@ -4,6 +4,7 @@ import { GOALS } from './goals';
 import { Wordmark } from './brand';
 import { exportNetworkCard } from './exportCard';
 import { isMuted, toggleMute, unlockAudio } from './audio';
+import { syncMuteFromAudio } from './settings';
 import { useStore } from './store';
 import type { OverlayMode } from './store';
 import { useState } from 'react';
@@ -194,11 +195,20 @@ export function HUD(): React.JSX.Element | null {
             onClick={() => {
               unlockAudio();
               setMutedUi(toggleMute());
+              syncMuteFromAudio();
             }}
             title={muted ? 'Unmute' : 'Mute'}
             className="ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
           >
             {muted ? 'Unmute' : 'Mute'}
+          </button>
+          <button
+            onClick={() => setPanel(useStore.getState().panel === 'settings' ? 'none' : 'settings')}
+            title="Settings"
+            aria-label="Settings"
+            className="ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
+          >
+            Settings
           </button>
           <button
             onClick={() => void share()}

@@ -33,6 +33,13 @@ All notable changes to MetroForge are documented here. Format follows
   in-game clock, plus a light edge vignette.
 - **Share network card.** HUD Share button exports a 1200×675 PNG of the live
   map with ridership / share / coverage stats.
+- **Settings panel.** Basemap (Ink / Satellite), view (Flat / Isometric),
+  day-night, vignette, map labels, mute, and tutorial replay — persisted on
+  device.
+- **Satellite basemap.** Optional aerial-inspired recolor of the baked ground
+  (no external imagery tiles).
+- **Soft isometric view.** Y-squash camera with extruded building blocks;
+  click/pan hit-testing stays aligned.
 
 ### Changed
 - Muted road hierarchy so the transit network stays the visual hero.

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { GameRenderer } from '@render/renderer';
 import { sfxRoute, sfxStation, sfxTrack, sfxWarn, unlockAudio } from './audio';
 import { setRenderer } from './rendererBridge';
+import { getSettings, subscribeSettings } from './settings';
 import { useStore } from './store';
 
 /** Mounts the Pixi renderer and wires input → commands. */
@@ -18,11 +19,23 @@ export function GameCanvas(): React.JSX.Element {
     setRenderer(renderer);
     let disposed = false;
 
+    const applyPrefs = (): void => {
+      const s = getSettings();
+      renderer.setPrefs({
+        basemap: s.basemap,
+        view: s.view,
+        dayNight: s.dayNight,
+        vignette: s.vignette,
+        mapLabels: s.mapLabels,
+      });
+    };
+
     void renderer.init(host).then(() => {
       if (disposed) {
         renderer.destroy();
         return;
       }
+      applyPrefs();
       const { client } = useStore.getState();
       client.events.onReady = (city) => renderer.setStaticCity(city);
       client.events.onFields = (payload) => renderer.setFields(payload);
@@ -213,11 +226,13 @@ export function GameCanvas(): React.JSX.Element {
       updateGhost();
       rendererRef.current?.setOverlay(st.overlay);
     });
+    const unsubSettings = subscribeSettings(() => applyPrefs());
 
     return () => {
       disposed = true;
       window.removeEventListener('keydown', onKey);
       unsub();
+      unsubSettings();
       setRenderer(null);
       rendererRef.current?.destroy();
       rendererRef.current = null;

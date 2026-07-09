@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { GameCanvas } from './GameCanvas';
 import { HUD } from './HUD';
 import { Toolbar } from './Toolbar';
-import { BudgetPanel, GoalsPanel, RoutePanel, RoutesPanel, StationPanel } from './Panels';
+import { BudgetPanel, GoalsPanel, RoutePanel, RoutesPanel, SettingsPanel, StationPanel } from './Panels';
 import { CITY_PRESETS } from '@core/city/presets';
 import { OSM_CITY_KEYS } from '@core/city/osmRegistry';
 import { Logo, Wordmark, TAGLINE } from './brand';
@@ -299,6 +299,7 @@ function NewGameScreen(): React.JSX.Element {
     loadTutorialDone() ? 'daily' : 'free',
   );
   const [authOpen, setAuthOpen] = useState(false);
+  const setPanel = useStore((s) => s.setPanel);
   const hasSave = localStorage.getItem('metroforge:save:auto') !== null;
   useEffect(() => {
     if (account) void syncCampaign();
@@ -307,7 +308,13 @@ function NewGameScreen(): React.JSX.Element {
     <div className="absolute inset-0 z-40 bg-zinc-950 overflow-y-auto">
       {/* subtle brand glow */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_40%_at_50%_0%,rgba(255,182,61,0.08),transparent)]" />
-      <div className="absolute top-3 right-3 z-10 text-xs">
+      <div className="absolute top-3 right-3 z-10 text-xs flex items-center gap-2">
+        <button
+          onClick={() => setPanel('settings')}
+          className="px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 text-zinc-300 hover:text-zinc-100"
+        >
+          Settings
+        </button>
         {account ? (
           <div className="flex items-center gap-2 text-zinc-400">
             <span className="text-zinc-200">{account.name}</span>
@@ -474,6 +481,7 @@ export function App(): React.JSX.Element {
       {started && panel === 'budget' && <BudgetPanel />}
       {started && panel === 'goals' && <GoalsPanel />}
       {started && panel === 'routes' && <RoutesPanel />}
+      {(started || panel === 'settings') && panel === 'settings' && <SettingsPanel />}
       <Toasts />
       {started && <TutorialCard />}
       {started && won && <WinOverlay />}

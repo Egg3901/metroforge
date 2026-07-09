@@ -35,6 +35,16 @@ export const PALETTE = {
   building: [48, 50, 51] as RGB,
   buildingDense: [58, 60, 55] as RGB,
 
+  // ── satellite basemap (aerial-inspired; still stylized, no external tiles) ──
+  satLand: [52, 68, 42] as RGB,
+  satLandUrban: [78, 74, 68] as RGB,
+  satWaterDeep: [28, 58, 78] as RGB,
+  satWaterShallow: [48, 92, 108] as RGB,
+  satShore: [140, 128, 96] as RGB,
+  satPark: [46, 92, 52] as RGB,
+  satBuilding: [92, 88, 82] as RGB,
+  satBuildingDense: [110, 104, 96] as RGB,
+
   // ── roads — muted, clearly lighter than fabric but never competing with lines ──
   roadLocal: 0x4a4f4c,
   roadCollector: 0x5c625c,

@@ -1,6 +1,17 @@
 import { MODES } from '@core/constants';
+import { useEffect, useState } from 'react';
 import { useStore } from './store';
 import { GOALS } from './goals';
+import {
+  DEFAULT_SETTINGS,
+  getSettings,
+  patchSettings,
+  subscribeSettings,
+  type BasemapStyle,
+  type Settings,
+  type ViewMode,
+} from './settings';
+import { clearTutorialDone } from './tutorial';
 
 const fmt = (v: number): string => (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${(v / 1e3).toFixed(1)}K`);
 
@@ -442,6 +453,146 @@ export function BudgetPanel(): React.JSX.Element | null {
         <p className="text-xs text-zinc-500">
           Subsidy scales with approval and shrinks 2% per year — the city expects the network to carry itself eventually.
           Bankruptcy at −$500K for 7 straight days.
+        </p>
+      </div>
+    </PanelShell>
+  );
+}
+
+function SettingRow({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm text-zinc-100 font-medium">{label}</div>
+          {hint && <div className="text-[11px] text-zinc-500 mt-0.5 leading-snug">{hint}</div>}
+        </div>
+        <div className="shrink-0">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Seg<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: { id: T; label: string }[];
+  onChange: (v: T) => void;
+}): React.JSX.Element {
+  return (
+    <div className="flex rounded-lg overflow-hidden border border-zinc-800">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => onChange(o.id)}
+          className={`px-2.5 py-1 text-[11px] font-semibold ${
+            value === o.id ? 'bg-amber-500 text-zinc-950' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-100'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }): React.JSX.Element {
+  return (
+    <button
+      role="switch"
+      aria-checked={on}
+      onClick={() => onChange(!on)}
+      className={`relative w-10 h-6 rounded-full transition-colors ${on ? 'bg-amber-500' : 'bg-zinc-700'}`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-zinc-950 transition-transform ${
+          on ? 'translate-x-4' : ''
+        }`}
+      />
+    </button>
+  );
+}
+
+export function SettingsPanel(): React.JSX.Element {
+  const [s, setS] = useState<Settings>(() => getSettings());
+  const pushToast = useStore((s) => s.pushToast);
+  useEffect(() => subscribeSettings(setS), []);
+
+  const apply = (partial: Partial<Settings>): void => {
+    setS(patchSettings(partial));
+  };
+
+  return (
+    <PanelShell title="Settings">
+      <div className="space-y-2.5">
+        <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-500 font-semibold px-0.5">Map</div>
+        <SettingRow label="Basemap" hint="Ink is the default stylized map. Satellite is an aerial-inspired recolor — no external tiles.">
+          <Seg<BasemapStyle>
+            value={s.basemap}
+            options={[
+              { id: 'ink', label: 'Ink' },
+              { id: 'satellite', label: 'Satellite' },
+            ]}
+            onChange={(basemap) => apply({ basemap })}
+          />
+        </SettingRow>
+        <SettingRow label="View" hint="Isometric soft-tilts the map and extrudes building blocks. Hit-testing stays aligned.">
+          <Seg<ViewMode>
+            value={s.view}
+            options={[
+              { id: 'flat', label: 'Flat' },
+              { id: 'iso', label: 'Isometric' },
+            ]}
+            onChange={(view) => apply({ view })}
+          />
+        </SettingRow>
+        <SettingRow label="Day / night">
+          <Toggle on={s.dayNight} onChange={(dayNight) => apply({ dayNight })} />
+        </SettingRow>
+        <SettingRow label="Vignette">
+          <Toggle on={s.vignette} onChange={(vignette) => apply({ vignette })} />
+        </SettingRow>
+        <SettingRow label="Map labels">
+          <Toggle on={s.mapLabels} onChange={(mapLabels) => apply({ mapLabels })} />
+        </SettingRow>
+
+        <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-500 font-semibold px-0.5 pt-2">Audio</div>
+        <SettingRow label="Mute">
+          <Toggle on={s.muted} onChange={(muted) => apply({ muted })} />
+        </SettingRow>
+
+        <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-500 font-semibold px-0.5 pt-2">Help</div>
+        <button
+          onClick={() => {
+            clearTutorialDone();
+            pushToast('Tutorial will start on your next Free Play city', 'info');
+          }}
+          className="w-full py-2 rounded-lg border border-zinc-800 bg-zinc-900/60 text-xs text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800"
+        >
+          Replay first-city lesson
+        </button>
+        <button
+          onClick={() => {
+            setS(patchSettings({ ...DEFAULT_SETTINGS, muted: s.muted }));
+            pushToast('View settings reset', 'info');
+          }}
+          className="w-full py-2 rounded-lg text-xs text-zinc-500 hover:text-zinc-300"
+        >
+          Reset map defaults
+        </button>
+        <p className="text-[11px] text-zinc-600 leading-relaxed pt-1">
+          Preferences save on this device. Satellite and isometric are optional presentation modes — the sim stays the same.
         </p>
       </div>
     </PanelShell>

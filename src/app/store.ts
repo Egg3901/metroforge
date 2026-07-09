@@ -32,7 +32,7 @@ interface AppState {
   selectedStationId: number | null;
   selectedRouteId: number | null;
   toasts: Toast[];
-  panel: 'none' | 'budget' | 'station' | 'route' | 'goals' | 'routes';
+  panel: 'none' | 'budget' | 'station' | 'route' | 'goals' | 'routes' | 'settings';
   overlay: OverlayMode;
   completedGoals: string[];
   scenario: Scenario | null;
