@@ -63,6 +63,30 @@ const CONTENT: Record<string, ScenarioContent> = {
     readout: (ui) => `${pct(ui.transitShare)} / 12%`,
     score: (ui) => Math.round(ui.transitShare * 10_000),
   },
+  'philly-1907': {
+    goal: 'Carry 35,000 daily transit riders before day 130',
+    progress: (ui) => ui.dailyTransitTrips / 35_000,
+    readout: (ui) => `${num(ui.dailyTransitTrips)} / 35,000`,
+    score: (ui) => Math.round(ui.dailyTransitTrips),
+  },
+  'sf-1912': {
+    goal: 'Cover 50% of residents before day 120',
+    progress: (ui) => ui.coverage / 0.5,
+    readout: (ui) => `${pct(ui.coverage)} / 50%`,
+    score: (ui) => Math.round(ui.coverage * 10_000),
+  },
+  'dc-1976': {
+    goal: 'Cover 45% of residents before day 150',
+    progress: (ui) => ui.coverage / 0.45,
+    readout: (ui) => `${pct(ui.coverage)} / 45%`,
+    score: (ui) => Math.round(ui.coverage * 10_000),
+  },
+  'seattle-2009': {
+    goal: 'Reach 15% transit mode share before day 160',
+    progress: (ui) => ui.transitShare / 0.15,
+    readout: (ui) => `${pct(ui.transitShare)} / 15%`,
+    score: (ui) => Math.round(ui.transitShare * 10_000),
+  },
 };
 
 export const SCENARIOS: Scenario[] = SCENARIO_REGISTRY.map((m) => {

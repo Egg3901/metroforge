@@ -39,6 +39,11 @@ const CITIES: CityCfg[] = [
   { key: 'cleveland', label: 'Cleveland', bbox: [41.45, -81.75, 41.54, -81.63] },
   { key: 'la', label: 'Los Angeles', bbox: [33.99, -118.30, 34.10, -118.18] },
   { key: 'atlanta', label: 'Atlanta', bbox: [33.72, -84.44, 33.82, -84.34] },
+  // ~12 km downtown cores with transit-history hooks
+  { key: 'philly', label: 'Philadelphia', bbox: [39.925, -75.20, 39.985, -75.12] },
+  { key: 'sf', label: 'San Francisco', bbox: [37.74, -122.48, 37.82, -122.38] },
+  { key: 'dc', label: 'Washington', bbox: [38.86, -77.07, 38.94, -76.97] },
+  { key: 'seattle', label: 'Seattle', bbox: [47.57, -122.38, 47.65, -122.28] },
 ];
 
 type LL = { lat: number; lon: number };

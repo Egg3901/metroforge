@@ -9,7 +9,17 @@
 import type { ScenarioRules } from '@core/scenarioRules';
 import type { TransitMode } from '@core/types';
 
-export type CityCode = 'nyc' | 'boston' | 'chicago' | 'cleveland' | 'atlanta' | 'la';
+export type CityCode =
+  | 'nyc'
+  | 'boston'
+  | 'chicago'
+  | 'cleveland'
+  | 'atlanta'
+  | 'la'
+  | 'philly'
+  | 'sf'
+  | 'dc'
+  | 'seattle';
 
 export interface ScenarioMeta {
   scenarioId: string; // global id, stable for saves + leaderboards ("nyc-1904")
@@ -116,6 +126,28 @@ export const SCENARIO_REGISTRY: ScenarioMeta[] = [
       maxDay: 140,
       approvalFloor: 22,
     }),
+  sc('philly-1907', 'philly', 'Philadelphia', '🔔', '1907', 'normal', 2, 4,
+    'Market Street Subway',
+    'Elevate and dig Market Street. Link the rivers before the streetcars own Center City.',
+    {
+      startingModes: ['tram', 'metro'],
+      lockModes: true,
+      startingCash: 10_500_000,
+      dailySubsidy: 30_000,
+      maxDay: 130,
+      approvalFloor: 22,
+    }),
+  sc('sf-1912', 'sf', 'San Francisco', '🌉', '1912', 'normal', 2, 5,
+    'Municipal Railway',
+    'Muni takes the streets. Climb the hills and stitch the bayfront before the private lines fold.',
+    {
+      startingModes: ['tram'],
+      lockModes: true,
+      startingCash: 9_500_000,
+      dailySubsidy: 28_000,
+      maxDay: 120,
+      approvalFloor: 24,
+    }),
 
   // ── Tier 3 · the hardest sell ──
   sc('la-1963', 'la', 'Los Angeles', '🌴', '1963', 'hard', 3, 8,
@@ -128,6 +160,28 @@ export const SCENARIO_REGISTRY: ScenarioMeta[] = [
       dailySubsidy: 18_000,
       maxDay: 180,
       approvalFloor: 18,
+    }),
+  sc('dc-1976', 'dc', 'Washington', '🏛️', '1976', 'hard', 3, 8,
+    'Metro Opens',
+    'A monumental heavy-rail system for a monumental city. Cover the core before the Beltway wins.',
+    {
+      startingModes: ['bus', 'metro'],
+      lockModes: true,
+      startingCash: 12_000_000,
+      dailySubsidy: 24_000,
+      maxDay: 150,
+      approvalFloor: 20,
+    }),
+  sc('seattle-2009', 'seattle', 'Seattle', '🌲', '2009', 'hard', 3, 9,
+    'Link Light Rail',
+    'Rain, hills, and a thin downtown spine. Grow light rail ridership before the ferries and freeways take over.',
+    {
+      startingModes: ['bus', 'tram'],
+      lockModes: true,
+      startingCash: 9_000_000,
+      dailySubsidy: 20_000,
+      maxDay: 160,
+      approvalFloor: 20,
     }),
 ];
 
