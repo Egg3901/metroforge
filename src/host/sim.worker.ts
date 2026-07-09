@@ -107,6 +107,7 @@ function buildUi(s: GameState): UiState {
     cash: s.budget.cash,
     loanBalance: s.budget.loanBalance,
     lastDay: s.budget.lastDay,
+    netHistory: s.budget.netHistory ? [...s.budget.netHistory] : [],
     population: s.stats.population,
     approval: s.stats.approval,
     transitShare: s.stats.transitShare,
