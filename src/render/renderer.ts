@@ -3,11 +3,12 @@
  * only on change; per-frame work is vehicles, agents, ghost, and camera.
  * Reads snapshots only — never touches sim state.
  */
-import { Application, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import type { DemandPayload, FieldsPayload, FrameSnapshot, StaticCity, TrafficPayload, UiState } from '@host/protocol';
 import type { TransitMode } from '@core/types';
 import { TICKS_PER_DAY } from '@core/constants';
 import { PALETTE as PAL, MODE_COLOR, mix, dayNightWash } from './palette';
+import { TEXTURE_URL, VEHICLE_SPRITE_URL, VEHICLE_WORLD_SIZE } from '../assets';
 
 const MODE_STATION_COLOR: Record<TransitMode, number> = MODE_COLOR;
 
@@ -74,7 +75,11 @@ export class GameRenderer {
   private traffic: TrafficPayload | null = null;
   private demand: DemandPayload | null = null;
   private flowG = new Graphics();
-  private vehiclesG = new Graphics();
+  /** Vehicle sprites (tinted) + overlay graphics for capacity bars / overcrowding. */
+  private vehiclesLayer = new Container();
+  private vehiclesOverlayG = new Graphics();
+  private vehiclePool: Sprite[] = [];
+  private vehicleTex: Partial<Record<TransitMode, Texture>> = {};
   private agentsG = new Graphics();
   /** per-route polyline + arc-length table, for animating passenger-flow motes */
   private routePaths: { color: number | string; pts: number[]; cum: number[]; total: number; ridership: number }[] = [];
@@ -82,6 +87,9 @@ export class GameRenderer {
   private dayNightG = new Graphics();
   private vignetteG = new Graphics();
   private isoBuildingsG = new Graphics();
+  /** Optional baked texture samples for water/park variation in bakeGround. */
+  private waterTexPx: { w: number; h: number; data: Uint8ClampedArray } | null = null;
+  private parkTexPx: { w: number; h: number; data: Uint8ClampedArray } | null = null;
 
   private city: StaticCity | null = null;
   private ui: UiState | null = null;
@@ -132,6 +140,7 @@ export class GameRenderer {
       // needed so exportNetworkCard can read pixels off the WebGL canvas
       preserveDrawingBuffer: true,
     });
+    await this.loadAssets();
     host.appendChild(this.app.canvas);
     // Depth order (top-down): ground → roads/tracks/routes → vehicles/agents →
     // stations/labels → buildings overlay (close zoom) → ghost preview on top.
@@ -145,7 +154,8 @@ export class GameRenderer {
       this.demandG,
       this.hotspotsG,
       this.flowG,
-      this.vehiclesG,
+      this.vehiclesLayer,
+      this.vehiclesOverlayG,
       this.agentsG,
       this.mapLabels,
       this.stationsG,
@@ -165,6 +175,43 @@ export class GameRenderer {
 
   destroy(): void {
     this.app.destroy(true, { children: true });
+  }
+
+  /** Load vehicle sprites + tiling textures once at startup. */
+  private async loadAssets(): Promise<void> {
+    const modes: TransitMode[] = ['bus', 'tram', 'metro', 'rail'];
+    const urls = [
+      ...modes.map((m) => VEHICLE_SPRITE_URL[m]),
+      TEXTURE_URL.grain,
+      TEXTURE_URL.water,
+      TEXTURE_URL.park,
+    ];
+    await Assets.load(urls);
+    for (const m of modes) {
+      this.vehicleTex[m] = Texture.from(VEHICLE_SPRITE_URL[m]);
+    }
+    this.detailTex = Texture.from(TEXTURE_URL.grain);
+    // Decode water/park tiles for soft sampling during ground bake
+    const decode = async (url: string): Promise<{ w: number; h: number; data: Uint8ClampedArray } | null> => {
+      try {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = url;
+        await img.decode();
+        const cv = document.createElement('canvas');
+        cv.width = img.naturalWidth;
+        cv.height = img.naturalHeight;
+        const ctx = cv.getContext('2d');
+        if (!ctx) return null;
+        ctx.drawImage(img, 0, 0);
+        const id = ctx.getImageData(0, 0, cv.width, cv.height);
+        return { w: cv.width, h: cv.height, data: id.data };
+      } catch {
+        return null;
+      }
+    };
+    this.waterTexPx = await decode(TEXTURE_URL.water);
+    this.parkTexPx = await decode(TEXTURE_URL.park);
   }
 
   // ── data ingestion ─────────────────────────────────────────────────────────
@@ -739,9 +786,18 @@ export class GameRenderer {
         const wf = hiWater ? sampleMask(hiWater, wxw, wyw) : bil(wsm, fx, fy); // 0..1 water
         let r: number, g: number, b: number;
         if (wf > 0.5) {
-          // clean flat water — a touch lighter at the shore, no noise
+          // clean flat water — a touch lighter at the shore, plus soft tile variation
           const shallow = Math.max(0, Math.min(1, 1 - (wf - 0.5) / 0.22));
-          const col = mix(waterDeep, waterShallow, shallow);
+          let col = mix(waterDeep, waterShallow, shallow);
+          if (this.waterTexPx) {
+            const tw = this.waterTexPx.w;
+            const th = this.waterTexPx.h;
+            const tx = ((Math.floor(wxw * 0.08) % tw) + tw) % tw;
+            const ty = ((Math.floor(wyw * 0.08) % th) + th) % th;
+            const o = (ty * tw + tx) * 4;
+            const d = this.waterTexPx.data;
+            col = mix(col, [d[o] as number, d[o + 1] as number, d[o + 2] as number], sat ? 0.35 : 0.22);
+          }
           r = col[0]; g = col[1]; b = col[2];
         } else {
           const park = hiPark ? sampleMask(hiPark, wxw, wyw) : bil(f.parks, fx, fy);
@@ -755,8 +811,20 @@ export class GameRenderer {
             const bfs = Math.max(0, Math.min(1, (sampleMask(hiBuilding, wxw, wyw) - 0.3) / 0.25));
             if (bfs > 0) col = mix(col, building, bfs);
           }
-          // parks — only solid green space (not scattered tree patches), crisp edge
-          if (park > 0.35) col = mix(col, parkCol, Math.max(0, Math.min(1, (park - 0.35) / 0.2)));
+          // parks — solid green space with soft tile variation
+          if (park > 0.35) {
+            let pcol: [number, number, number] = [parkCol[0], parkCol[1], parkCol[2]];
+            if (this.parkTexPx) {
+              const tw = this.parkTexPx.w;
+              const th = this.parkTexPx.h;
+              const tx = ((Math.floor(wxw * 0.06) % tw) + tw) % tw;
+              const ty = ((Math.floor(wyw * 0.06) % th) + th) % th;
+              const o = (ty * tw + tx) * 4;
+              const d = this.parkTexPx.data;
+              pcol = mix(pcol, [d[o] as number, d[o + 1] as number, d[o + 2] as number], 0.4);
+            }
+            col = mix(col, pcol, Math.max(0, Math.min(1, (park - 0.35) / 0.2)));
+          }
           // a thin luminous shore line just landward of the water
           if (wf > 0.42) col = mix(col, shoreLine, Math.min(1, (wf - 0.42) / 0.08) * (sat ? 0.55 : 0.4));
           const grain = (hash(px, py) - 0.5) * (sat ? 5 : 2);
@@ -791,6 +859,7 @@ export class GameRenderer {
    *  crisp at any zoom (unlike the baked sprite, which blurs when you zoom in). */
   private ensureDetail(city: StaticCity): void {
     if (!this.detailTex) {
+      // Fallback procedural grain if asset load failed
       const S = 256;
       const cv = document.createElement('canvas');
       cv.width = S; cv.height = S;
@@ -807,7 +876,6 @@ export class GameRenderer {
         for (let x = 0; x < S; x++) {
           const o = (y * S + x) * 4;
           const v = h(x, y);
-          // sparse light + dark specks, mostly transparent → a stipple grain
           if (v > 0.72) { d[o] = 210; d[o + 1] = 208; d[o + 2] = 196; d[o + 3] = Math.round((v - 0.72) * 130); }
           else if (v < 0.24) { d[o] = 0; d[o + 1] = 0; d[o + 2] = 0; d[o + 3] = Math.round((0.24 - v) * 150); }
           else { d[o + 3] = 0; }
@@ -1498,13 +1566,25 @@ export class GameRenderer {
       }
     }
 
-    // vehicles — mode-distinct sprites + occupancy cue
-    const vg = this.vehiclesG;
-    vg.clear();
+    // vehicles — tinted mode sprites + occupancy cue
     const f = this.frame;
+    const vg = this.vehiclesOverlayG;
+    vg.clear();
     if (f && this.ui) {
       const routeByColorIdx = this.ui.routes;
-      for (let i = 0; i < f.vehicleCount; i++) {
+      const needed = f.vehicleCount;
+      while (this.vehiclePool.length < needed) {
+        const s = new Sprite();
+        s.anchor.set(0.5, 0.5);
+        this.vehiclePool.push(s);
+        this.vehiclesLayer.addChild(s);
+      }
+      for (let i = 0; i < this.vehiclePool.length; i++) {
+        const spr = this.vehiclePool[i] as Sprite;
+        if (i >= needed) {
+          spr.visible = false;
+          continue;
+        }
         const x = f.vehicles[i * 6 + 1] as number;
         const y = f.vehicles[i * 6 + 2] as number;
         const heading = f.vehicles[i * 6 + 3] as number;
@@ -1512,7 +1592,47 @@ export class GameRenderer {
         const colorIdx = f.vehicles[i * 6 + 5] as number;
         const color = f.routeColorOf[colorIdx] ?? '#ffffff';
         const mode = routeByColorIdx[colorIdx]?.mode ?? 'bus';
-        this.drawVehicle(vg, mode, heading, occ, color, x, y);
+        const tex = this.vehicleTex[mode];
+        if (tex) {
+          spr.texture = tex;
+          spr.visible = true;
+          spr.x = x;
+          spr.y = y;
+          spr.rotation = heading;
+          const sz = VEHICLE_WORLD_SIZE[mode];
+          spr.width = sz.w;
+          spr.height = sz.h;
+          const tint =
+            typeof color === 'number'
+              ? color
+              : Number.parseInt(String(color).replace(/^#/, ''), 16) || 0xffffff;
+          spr.tint = tint;
+          spr.alpha = Math.min(1, 0.55 + Math.min(1, occ) * 0.45);
+        } else {
+          spr.visible = false;
+          this.drawVehicle(vg, mode, heading, occ, color, x, y);
+          continue;
+        }
+        // overcrowding ring + capacity bar (graphics overlay)
+        if (occ > 0.9) {
+          vg.circle(x, y, mode === 'rail' ? 55 : 42);
+          vg.stroke({ width: 8, color: 0xf87171, alpha: 0.9 });
+        }
+        if (this.scale > 0.12) {
+          const cos = Math.cos(heading);
+          const sin = Math.sin(heading);
+          const barW = mode === 'rail' ? 90 : mode === 'metro' ? 70 : 55;
+          const barH = 10;
+          const ly = -(mode === 'tram' ? 48 : 38);
+          const bx = x - sin * ly;
+          const by = y + cos * ly;
+          vg.rect(bx - barW / 2, by - barH / 2, barW, barH);
+          vg.fill({ color: 0x0b0d10, alpha: 0.65 });
+          const fillW = barW * Math.min(1, occ);
+          const barColor = occ >= 1 ? 0xff453a : occ >= 0.8 ? 0xff9f0a : 0x30d158;
+          vg.rect(bx - barW / 2, by - barH / 2, fillW, barH);
+          vg.fill({ color: barColor, alpha: 0.95 });
+        }
       }
 
       // passengers: small elegant motes — riders warm, walkers dim
@@ -1529,6 +1649,8 @@ export class GameRenderer {
           ag.fill({ color: phase === 1 ? 0xffe8a3 : 0x8b93a0, alpha: phase === 1 ? 0.85 : 0.4 });
         }
       }
+    } else {
+      for (const spr of this.vehiclePool) spr.visible = false;
     }
 
     // ghost

@@ -7,6 +7,11 @@ All notable changes to MetroForge are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **Sprite + texture asset pack** (`src/assets/`): tintable top-down vehicle
+  sprites (bus / tram / metro / rail), geometric station icons, and tiling
+  grain / water / park textures. Vehicles render as tinted Pixi sprites;
+  water and park tiles softly sample into the baked ground; grain drives the
+  world-fixed detail overlay.
 - **Mode-distinct vehicle sprites.** Buses, trams, metros, and railcars each
   have a readable silhouette; zoomed-in capacity bars show per-vehicle load.
 - **Finances + Settings HUD buttons** (desktop and mobile), with Budget/Settings
