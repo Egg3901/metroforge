@@ -52,6 +52,13 @@ describe('tutorial steps', () => {
     expect(step.done(emptyUi({ stations: [{ id: 1 } as never, { id: 2 } as never] }))).toBe(true);
   });
 
+  it('stations copy names the active mode', () => {
+    const step = TUTORIAL_STEPS.find((s) => s.id === 'stations')!;
+    expect(step.body('bus')).toMatch(/bus stops/);
+    expect(step.body('metro')).toMatch(/metro stops/);
+    expect(step.body('tram')).toMatch(/tram stops/);
+  });
+
   it('track / route / riders gates', () => {
     const track = TUTORIAL_STEPS.find((s) => s.id === 'track')!;
     const route = TUTORIAL_STEPS.find((s) => s.id === 'route')!;

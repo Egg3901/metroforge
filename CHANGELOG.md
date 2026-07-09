@@ -7,6 +7,8 @@ All notable changes to MetroForge are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **Four more OSM cities.** Philadelphia, San Francisco, Washington, and Seattle
+  with historical eras (1907 / 1912 / 1976 / 2009).
 - **Historical era scenarios.** NYC 1904, Boston 1897, Chicago 1892, Cleveland
   1955, Atlanta 1979, LA 1963 — each with locked starting modes, era budgets,
   day limits, and approval floors.
@@ -36,8 +38,12 @@ All notable changes to MetroForge are documented here. Format follows
 - Muted road hierarchy so the transit network stays the visual hero.
 - Tutorial coaching copy is more action-led; active tool button gets a stronger
   highlight while learning.
+- Tutorial runs on Free Play only (not eras/daily); first lesson defaults to
+  Chicago; station copy is mode-aware.
+- Eras picker groups by campaign tier; Objectives panel shows the live scenario
+  goal during era/daily runs; free-play map-size control removed (OSM extent).
 - HUD shows era label, day/limit countdown, and live scenario progress.
-- Scenario picker is now Eras; Daily is the default home tab.
+- Scenario picker is now Eras; Daily is the default home tab after the lesson.
 
 ## [1.1.0] - 2026-07-08
 

@@ -68,6 +68,7 @@ export function HUD(): React.JSX.Element | null {
   const pushToast = useStore((s) => s.pushToast);
   const completedGoals = useStore((s) => s.completedGoals.length);
   const totalGoals = GOALS.length;
+  const runStars = useStore((s) => s.runStars);
   const [muted, setMutedUi] = useState(isMuted);
   if (!ui) return null;
 
@@ -165,12 +166,16 @@ export function HUD(): React.JSX.Element | null {
           </button>
           <button
             onClick={() => setPanel('goals')}
-            title="Objectives"
+            title={scenario ? scenario.goal : 'Objectives'}
             aria-label="Objectives"
             className="mr-2 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-300 hover:text-zinc-100 flex items-center gap-1.5"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="0.6" fill="currentColor"/></svg>
-            <span className="tabular-nums">{completedGoals}/{totalGoals}</span>
+            <span className="tabular-nums">
+              {scenario
+                ? (runStars > 0 ? `${'★'.repeat(runStars)}` : `${Math.round(scProgress * 100)}%`)
+                : `${completedGoals}/${totalGoals}`}
+            </span>
           </button>
           <div className="flex rounded-lg overflow-hidden border border-zinc-800">
             {[0, 1, 10, 60].map((s) => (

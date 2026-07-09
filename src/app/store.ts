@@ -241,7 +241,7 @@ export const useStore = create<AppState>((set, get) => {
       lastFailed = null;
       unlockAudio();
       client.init(seed, s.difficulty, { size: s.size, presetKey: s.cityKey, rules: s.rules });
-      const teach = !loadTutorialDone() && !s.scenarioId.startsWith('daily-');
+      // Tutorial is free-play only — eras already teach under a clock and locked kit.
       const startMode = s.rules.startingModes[0] ?? 'bus';
       set({
         started: true,
@@ -250,9 +250,9 @@ export const useStore = create<AppState>((set, get) => {
         won: false,
         runStars: 0,
         runSeed: seed,
-        tutorialActive: teach,
+        tutorialActive: false,
         tutorialStep: 0,
-        overlay: teach ? 'density' : 'none',
+        overlay: 'none',
         tool: 'select',
         mode: startMode,
       });

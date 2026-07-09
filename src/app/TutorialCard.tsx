@@ -5,12 +5,13 @@
 import { useEffect, useRef } from 'react';
 import { getRenderer } from './rendererBridge';
 import { useStore } from './store';
-import { TUTORIAL_STEPS, tutorialFocus } from './tutorial';
+import { TUTORIAL_STEPS, tutorialFocus, tutorialMode } from './tutorial';
 
 export function TutorialCard(): React.JSX.Element | null {
   const active = useStore((s) => s.tutorialActive);
   const stepIdx = useStore((s) => s.tutorialStep);
   const ui = useStore((s) => s.ui);
+  const mode = useStore((s) => s.mode);
   const advanceTutorial = useStore((s) => s.advanceTutorial);
   const skipTutorial = useStore((s) => s.skipTutorial);
   const setTool = useStore((s) => s.setTool);
@@ -21,6 +22,7 @@ export function TutorialCard(): React.JSX.Element | null {
 
   const step = TUTORIAL_STEPS[stepIdx];
   const total = TUTORIAL_STEPS.length;
+  const teachMode = tutorialMode(ui, mode);
 
   // apply tool/overlay when the step changes (once per step index)
   useEffect(() => {
@@ -71,8 +73,8 @@ export function TutorialCard(): React.JSX.Element | null {
             </button>
           </div>
           <h3 className="font-display text-lg text-zinc-50 tracking-tight leading-snug">{step.title}</h3>
-          <p className="text-sm text-zinc-400 mt-1.5 leading-relaxed">{step.body}</p>
-          <p className="text-xs text-amber-300/90 mt-2 font-medium">{step.action}</p>
+          <p className="text-sm text-zinc-400 mt-1.5 leading-relaxed">{step.body(teachMode)}</p>
+          <p className="text-xs text-amber-300/90 mt-2 font-medium">{step.action(teachMode)}</p>
           <div className="mt-3 flex items-center justify-between gap-3">
             <span className="text-xs font-mono tabular-nums text-zinc-500">{step.progress(ui)}</span>
             {(canContinue || step.id === 'density') && (

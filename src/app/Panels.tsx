@@ -56,7 +56,56 @@ function PanelShell({ title, children }: { title: string; children: React.ReactN
 export function GoalsPanel(): React.JSX.Element | null {
   const ui = useStore((s) => s.ui);
   const completed = useStore((s) => s.completedGoals);
+  const scenario = useStore((s) => s.scenario);
+  const runStars = useStore((s) => s.runStars);
+  const won = useStore((s) => s.won);
   if (!ui) return null;
+
+  if (scenario) {
+    const p = Math.max(0, Math.min(1, scenario.progress(ui)));
+    const done = p >= 1 || won;
+    const modes = scenario.rules.startingModes.join(' · ');
+    return (
+      <PanelShell title={`${scenario.city} ${scenario.era}`}>
+        <div className="space-y-3">
+          <div className={`rounded-lg border p-3 ${done ? 'border-emerald-600/60 bg-emerald-950/30' : 'border-amber-500/30 bg-zinc-900/50'}`}>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-amber-400/90 font-semibold mb-1">
+              {scenario.label}
+            </div>
+            <div className={`text-sm font-medium ${done ? 'text-emerald-300' : 'text-zinc-100'}`}>{scenario.goal}</div>
+            <div className="flex items-baseline justify-between mt-2 text-xs">
+              <span className="text-zinc-500">Progress</span>
+              <span className="font-mono tabular-nums text-amber-200/90">{scenario.readout(ui)}</span>
+            </div>
+            <div className="h-1.5 mt-1.5 rounded-full bg-zinc-800 overflow-hidden">
+              <div className={`h-full rounded-full ${done ? 'bg-emerald-500' : 'bg-amber-400'}`} style={{ width: `${p * 100}%` }} />
+            </div>
+            {done && (
+              <div className="mt-2 text-xs text-emerald-300/90">
+                Cleared · {runStars > 0 ? `${runStars} ★ this run` : 'goal met'}
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[11px] text-zinc-400">
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
+              <div className="text-zinc-500 uppercase tracking-wide text-[9px] font-bold mb-0.5">Modes</div>
+              {modes}
+              {scenario.rules.lockModes ? ' (locked)' : ''}
+            </div>
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
+              <div className="text-zinc-500 uppercase tracking-wide text-[9px] font-bold mb-0.5">Clock</div>
+              {scenario.rules.maxDay != null ? `${ui.day} / ${scenario.rules.maxDay} days` : 'No day limit'}
+            </div>
+          </div>
+          <p className="text-[11px] text-zinc-500 leading-relaxed">{scenario.description}</p>
+          <div className="text-[11px] text-zinc-500">
+            Stars: 1 at goal · 2 at 1.3× · 3 at 1.7×
+          </div>
+        </div>
+      </PanelShell>
+    );
+  }
+
   const doneCount = completed.length;
   return (
     <PanelShell title={`Objectives · ${doneCount}/${GOALS.length}`}>
