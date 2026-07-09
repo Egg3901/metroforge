@@ -23,5 +23,6 @@
       "@content/*": ["src/content/*"]
     }
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  "exclude": ["src/server"]
 }

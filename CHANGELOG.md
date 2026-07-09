@@ -4,6 +4,54 @@ All notable changes to MetroForge are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/); this project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Four more OSM cities.** Philadelphia, San Francisco, Washington, and Seattle
+  with historical eras (1907 / 1912 / 1976 / 2009).
+- **Historical era scenarios.** NYC 1904, Boston 1897, Chicago 1892, Cleveland
+  1955, Atlanta 1979, LA 1963 — each with locked starting modes, era budgets,
+  day limits, and approval floors.
+- **Goal-based mode unlocks.** Tram / metro / rail unlock from ridership, share,
+  or coverage (population remains a fallback); era scenarios can freeze the kit.
+- **Real failure.** Approval-floor and time-limit losses join bankruptcy; unified
+  fail overlay returns to the menu.
+- **Daily challenge.** Shared UTC-date seed + tightened clock; home-screen Daily
+  tab with today's board.
+- **Server-side OSM replay verification.** `npm run build:verify` bundles the
+  sim + city JSON; `/api/score` re-sims the command log and rejects hash mismatches.
+- **Cloud campaign stars.** Signed-in accounts sync best-per-scenario stars via
+  `GET/POST /api/campaign` (merge-max with local).
+- **Procedural audio.** Soft ambient bed + station/track/route/win/fail cues;
+  Mute toggle in the HUD (persisted).
+- **Guided first-city tutorial.** Five interactive steps with auto tool/overlay,
+  camera focus, skip, and home-screen replay.
+- **Typography.** Fraunces display + DM Sans for UI and map labels.
+- **Parallel corridor bundling.** Shared track corridors offset so overlapping
+  lines read as distinct ribbons.
+- **Day/night wash.** Soft blue night and warm dawn/dusk veils driven by the
+  in-game clock, plus a light edge vignette.
+- **Share network card.** HUD Share button exports a 1200×675 PNG of the live
+  map with ridership / share / coverage stats.
+- **Settings panel.** Basemap (Ink / Satellite), view (Flat / Isometric),
+  day-night, vignette, map labels, mute, and tutorial replay — persisted on
+  device.
+- **Satellite basemap.** Optional aerial-inspired recolor of the baked ground
+  (no external imagery tiles).
+- **Soft isometric view.** Y-squash camera with extruded building blocks;
+  click/pan hit-testing stays aligned.
+
+### Changed
+- Muted road hierarchy so the transit network stays the visual hero.
+- Tutorial coaching copy is more action-led; active tool button gets a stronger
+  highlight while learning.
+- Tutorial runs on Free Play only (not eras/daily); first lesson defaults to
+  Chicago; station copy is mode-aware.
+- Eras picker groups by campaign tier; Objectives panel shows the live scenario
+  goal during era/daily runs; free-play map-size control removed (OSM extent).
+- HUD shows era label, day/limit countdown, and live scenario progress.
+- Scenario picker is now Eras; Daily is the default home tab after the lesson.
+
 ## [1.1.0] - 2026-07-08
 
 Real cities and a batch of live-feedback fixes (tracked as GitHub issues #1–#10).

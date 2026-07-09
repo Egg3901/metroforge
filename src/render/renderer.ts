@@ -6,11 +6,27 @@
 import { Application, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import type { DemandPayload, FieldsPayload, FrameSnapshot, StaticCity, TrafficPayload, UiState } from '@host/protocol';
 import type { TransitMode } from '@core/types';
-import { PALETTE as PAL, MODE_COLOR, mix } from './palette';
+import { TICKS_PER_DAY } from '@core/constants';
+import { PALETTE as PAL, MODE_COLOR, mix, dayNightWash } from './palette';
 
 const MODE_STATION_COLOR: Record<TransitMode, number> = MODE_COLOR;
 
+/** Soft isometric Y-squash — keeps axes aligned so hit-testing stays simple. */
+const ISO_Y = 0.58;
+/** Fake building height in world meters for the isometric extrusion pass. */
+const ISO_EXTRUDE = 140;
+
 export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic' | 'unserved';
+export type BasemapStyle = 'ink' | 'satellite';
+export type ViewMode = 'flat' | 'iso';
+
+export interface RenderPrefs {
+  basemap: BasemapStyle;
+  view: ViewMode;
+  dayNight: boolean;
+  vignette: boolean;
+  mapLabels: boolean;
+}
 
 export interface GhostState {
   kind: 'none' | 'station' | 'track' | 'route';
@@ -55,6 +71,9 @@ export class GameRenderer {
   /** per-route polyline + arc-length table, for animating passenger-flow motes */
   private routePaths: { color: number | string; pts: number[]; cum: number[]; total: number; ridership: number }[] = [];
   private ghostG = new Graphics();
+  private dayNightG = new Graphics();
+  private vignetteG = new Graphics();
+  private isoBuildingsG = new Graphics();
 
   private city: StaticCity | null = null;
   private ui: UiState | null = null;
@@ -63,18 +82,34 @@ export class GameRenderer {
   private frame: FrameSnapshot | null = null;
   ghost: GhostState = { kind: 'none', points: [], valid: true, cost: null, mode: 'bus' };
 
+  private prefs: RenderPrefs = {
+    basemap: 'ink',
+    view: 'flat',
+    dayNight: true,
+    vignette: true,
+    mapLabels: true,
+  };
+
   // camera
   private scale = 0.09;
   private targetScale = 0.09; // eased toward for buttery zoom
   private zoomFocus = { x: 0, y: 0 }; // screen point to zoom about
   private cx = 0;
   private cy = 0;
+  private targetCx = 0;
+  private targetCy = 0;
+  private camEasing = false;
   private dragging = false;
   private lastPointer = { x: 0, y: 0 };
   private pointerDownAt = { x: 0, y: 0 };
   private clock = 0; // ms, drives overlay pulse animation
+  private lastDayNightKey = '';
 
   callbacks: Partial<RendererCallbacks> = {};
+
+  private get sy(): number {
+    return this.prefs.view === 'iso' ? this.scale * ISO_Y : this.scale;
+  }
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -84,12 +119,36 @@ export class GameRenderer {
       preference: 'webgl',
       resolution: Math.min(window.devicePixelRatio || 1, 2),
       autoDensity: true,
+      // needed so exportNetworkCard can read pixels off the WebGL canvas
+      preserveDrawingBuffer: true,
     });
     host.appendChild(this.app.canvas);
-    this.world.addChild(this.localRoadsG, this.buildingsG, this.roadsG, this.trafficRoadsG, this.tracksG, this.routesG, this.coverageG, this.demandG, this.hotspotsG, this.flowG, this.mapLabels, this.stationsG, this.labels, this.vehiclesG, this.agentsG, this.ghostG);
+    this.world.addChild(
+      this.localRoadsG,
+      this.buildingsG,
+      this.isoBuildingsG,
+      this.roadsG,
+      this.trafficRoadsG,
+      this.tracksG,
+      this.routesG,
+      this.coverageG,
+      this.demandG,
+      this.hotspotsG,
+      this.flowG,
+      this.mapLabels,
+      this.stationsG,
+      this.labels,
+      this.vehiclesG,
+      this.agentsG,
+      this.ghostG,
+    );
     this.app.stage.addChild(this.world);
+    this.app.stage.addChild(this.dayNightG);
+    this.app.stage.addChild(this.vignetteG);
     this.attachInput(this.app.canvas);
     this.app.ticker.add(() => this.tick());
+    this.drawVignette();
+    this.app.renderer.on('resize', () => this.drawVignette());
   }
 
   destroy(): void {
@@ -161,6 +220,84 @@ export class GameRenderer {
     if (mode === this.overlayMode) return;
     this.overlayMode = mode;
     this.bakeOverlay();
+  }
+
+  /** Apply player view preferences (basemap, isometric, day/night, labels). */
+  setPrefs(prefs: Partial<RenderPrefs>): void {
+    const prev = this.prefs;
+    this.prefs = { ...prev, ...prefs };
+    if (this.prefs.basemap !== prev.basemap && this.fieldsPayload) this.bakeGround(this.fieldsPayload);
+    if (this.prefs.view !== prev.view) this.drawIsoBuildings();
+    this.mapLabels.visible = this.prefs.mapLabels;
+    this.vignetteG.visible = this.prefs.vignette;
+    this.drawVignette();
+    if (!this.prefs.dayNight) {
+      this.dayNightG.clear();
+      this.lastDayNightKey = '';
+    } else {
+      this.lastDayNightKey = '';
+      this.updateDayNight();
+    }
+  }
+
+  /** Ease the camera toward a world point (tutorial / focus cues). */
+  focusOn(x: number, y: number, scale?: number): void {
+    this.targetCx = x;
+    this.targetCy = y;
+    this.camEasing = true;
+    if (scale !== undefined) {
+      this.zoomFocus = { x: this.app.screen.width / 2, y: this.app.screen.height / 2 };
+      this.targetScale = Math.max(0.03, Math.min(2.5, scale));
+    }
+  }
+
+  /** Snapshot the WebGL canvas for the shareable network card. */
+  captureCanvas(): HTMLCanvasElement | null {
+    try {
+      // force a fresh frame so preserveDrawingBuffer has current pixels
+      this.app.renderer.render(this.app.stage);
+      return this.app.canvas as HTMLCanvasElement;
+    } catch {
+      return null;
+    }
+  }
+
+  private drawVignette(): void {
+    const g = this.vignetteG;
+    g.clear();
+    if (!this.prefs.vignette) return;
+    const w = this.app.screen.width;
+    const h = this.app.screen.height;
+    if (w < 2 || h < 2) return;
+    // four soft edge strips — cheap stand-in for a radial vignette
+    const edge = Math.min(90, Math.min(w, h) * 0.12);
+    g.rect(0, 0, w, edge);
+    g.fill({ color: 0x0b0d10, alpha: 0.35 });
+    g.rect(0, h - edge, w, edge);
+    g.fill({ color: 0x0b0d10, alpha: 0.4 });
+    g.rect(0, 0, edge, h);
+    g.fill({ color: 0x0b0d10, alpha: 0.28 });
+    g.rect(w - edge, 0, edge, h);
+    g.fill({ color: 0x0b0d10, alpha: 0.28 });
+  }
+
+  private updateDayNight(): void {
+    if (!this.prefs.dayNight) {
+      this.dayNightG.clear();
+      return;
+    }
+    const tick = this.ui?.tick ?? 0;
+    const hour = ((tick % TICKS_PER_DAY) / TICKS_PER_DAY) * 24;
+    // quantize so we don't redraw every tick
+    const key = `${Math.round(hour * 4) / 4}|${this.app.screen.width}x${this.app.screen.height}`;
+    if (key === this.lastDayNightKey) return;
+    this.lastDayNightKey = key;
+    const wash = dayNightWash(hour);
+    const g = this.dayNightG;
+    g.clear();
+    if (wash.alpha < 0.01) return;
+    g.rect(0, 0, this.app.screen.width, this.app.screen.height);
+    g.fill({ color: wash.color, alpha: wash.alpha });
   }
 
   /** Data overlays: heatmap sprite for field layers, circles for coverage. */
@@ -337,14 +474,14 @@ export class GameRenderer {
   worldToScreen(x: number, y: number): { x: number; y: number } {
     return {
       x: (x - this.cx) * this.scale + this.app.screen.width / 2,
-      y: (y - this.cy) * this.scale + this.app.screen.height / 2,
+      y: (y - this.cy) * this.sy + this.app.screen.height / 2,
     };
   }
 
   screenToWorld(sx: number, sy: number): { x: number; y: number } {
     return {
       x: (sx - this.app.screen.width / 2) / this.scale + this.cx,
-      y: (sy - this.app.screen.height / 2) / this.scale + this.cy,
+      y: (sy - this.app.screen.height / 2) / this.sy + this.cy,
     };
   }
 
@@ -367,6 +504,7 @@ export class GameRenderer {
       canvas.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 1) {
+        this.camEasing = false; // player takes the camera back
         this.dragging = true;
         this.pointerDownAt = { x: e.clientX, y: e.clientY };
         this.lastPointer = { x: e.clientX, y: e.clientY };
@@ -400,7 +538,7 @@ export class GameRenderer {
       this.callbacks.onHoverWorld?.(w.x, w.y);
       if (this.dragging) {
         this.cx -= (e.clientX - this.lastPointer.x) / this.scale;
-        this.cy -= (e.clientY - this.lastPointer.y) / this.scale;
+        this.cy -= (e.clientY - this.lastPointer.y) / this.sy;
         clampCam();
       }
       this.lastPointer = { x: e.clientX, y: e.clientY };
@@ -524,6 +662,14 @@ export class GameRenderer {
 
     const img = ctx.createImageData(W * PX, H * PX);
     const data = img.data;
+    const sat = this.prefs.basemap === 'satellite';
+    const land = sat ? PAL.satLand : PAL.land;
+    const landUrban = sat ? PAL.satLandUrban : PAL.landUrban;
+    const waterDeep = sat ? PAL.satWaterDeep : PAL.waterDeep;
+    const waterShallow = sat ? PAL.satWaterShallow : PAL.waterShallow;
+    const shoreLine = sat ? PAL.satShore : PAL.shoreLine;
+    const parkCol = sat ? PAL.satPark : PAL.park;
+    const building = sat ? PAL.satBuilding : PAL.building;
     for (let py = 0; py < H * PX; py++) {
       for (let px = 0; px < W * PX; px++) {
         const fx = px / PX - 0.5;
@@ -535,23 +681,25 @@ export class GameRenderer {
         if (wf > 0.5) {
           // clean flat water — a touch lighter at the shore, no noise
           const shallow = Math.max(0, Math.min(1, 1 - (wf - 0.5) / 0.22));
-          const col = mix(PAL.waterDeep, PAL.waterShallow, shallow);
+          const col = mix(waterDeep, waterShallow, shallow);
           r = col[0]; g = col[1]; b = col[2];
         } else {
           const park = hiPark ? sampleMask(hiPark, wxw, wyw) : bil(f.parks, fx, fy);
-          // FLAT land base — no procedural-density tint (that noisy field caused the
-          // soft blobs). Structure comes from the real, crisp building + park masks.
-          let col: [number, number, number] = [PAL.land[0], PAL.land[1], PAL.land[2]];
+          const dens = Math.max(0, Math.min(1, bil(f.population, fx, fy) / maxPop));
+          // FLAT land base — satellite lifts urban fabric with density; ink stays neutral.
+          let col: [number, number, number] = sat
+            ? mix(land, landUrban, dens * 0.55)
+            : [land[0], land[1], land[2]];
           // real building fabric — sharpened mask edge so blocks read as crisp blocks
           if (hiBuilding && park < 0.4) {
             const bfs = Math.max(0, Math.min(1, (sampleMask(hiBuilding, wxw, wyw) - 0.3) / 0.25));
-            if (bfs > 0) col = mix(col, PAL.building, bfs);
+            if (bfs > 0) col = mix(col, building, bfs);
           }
           // parks — only solid green space (not scattered tree patches), crisp edge
-          if (park > 0.35) col = mix(col, PAL.park, Math.max(0, Math.min(1, (park - 0.35) / 0.2)));
+          if (park > 0.35) col = mix(col, parkCol, Math.max(0, Math.min(1, (park - 0.35) / 0.2)));
           // a thin luminous shore line just landward of the water
-          if (wf > 0.42) col = mix(col, PAL.shoreLine, Math.min(1, (wf - 0.42) / 0.08) * 0.4);
-          const grain = (hash(px, py) - 0.5) * 2;
+          if (wf > 0.42) col = mix(col, shoreLine, Math.min(1, (wf - 0.42) / 0.08) * (sat ? 0.55 : 0.4));
+          const grain = (hash(px, py) - 0.5) * (sat ? 5 : 2);
           r = col[0] + grain; g = col[1] + grain; b = col[2] + grain;
         }
         const o = (py * W * PX + px) * 4;
@@ -576,6 +724,7 @@ export class GameRenderer {
     this.groundSprite.width = city.fieldW * city.cellSize;
     this.groundSprite.height = city.fieldH * city.cellSize;
     this.ensureDetail(city);
+    this.drawIsoBuildings();
   }
 
   /** A fine, world-fixed tiling grain over the ground — real texture that stays
@@ -620,6 +769,98 @@ export class GameRenderer {
     this.detailSprite.y = city.originY;
     this.detailSprite.width = w;
     this.detailSprite.height = hgt;
+    this.detailSprite.alpha = this.prefs.basemap === 'satellite' ? 0.18 : 0.3;
+  }
+
+  /**
+   * Soft isometric extrusion from the building mask (or procedural lots).
+   * Drawn as simple north-facing walls + roofs — a 2.5D cue, not a full 3D scene.
+   */
+  private drawIsoBuildings(): void {
+    const g = this.isoBuildingsG;
+    g.clear();
+    const city = this.city;
+    if (!city || this.prefs.view !== 'iso') {
+      g.visible = false;
+      return;
+    }
+    g.visible = true;
+    const sat = this.prefs.basemap === 'satellite';
+    const wall = sat ? 0x5a564f : 0x2e3230;
+    const roof = sat ? 0x8a8478 : 0x4a4e48;
+    const wallA = 0.72;
+    const roofA = 0.88;
+    const h = ISO_EXTRUDE;
+    const mask = city.buildingMask;
+    const res = city.maskRes ?? 0;
+    if (mask && res > 0) {
+      // sample a coarse grid of building cells and extrude blocks
+      const step = Math.max(2, Math.floor(res / 96));
+      const half = city.worldSize / 2;
+      const cell = city.worldSize / res;
+      const lots: { x: number; y: number; s: number }[] = [];
+      for (let gy = step; gy < res - step; gy += step) {
+        for (let gx = step; gx < res - step; gx += step) {
+          if ((mask[gy * res + gx] as number) < 128) continue;
+          // skip if neighbors are empty (edge noise)
+          let n = 0;
+          for (let oy = -1; oy <= 1; oy++) {
+            for (let ox = -1; ox <= 1; ox++) {
+              if ((mask[(gy + oy) * res + (gx + ox)] as number) >= 128) n++;
+            }
+          }
+          if (n < 5) continue;
+          const x = -half + (gx + 0.5) * cell;
+          const y = -half + (gy + 0.5) * cell;
+          lots.push({ x, y, s: cell * step * 0.42 });
+        }
+      }
+      // draw far (north) first so nearer roofs occlude
+      lots.sort((a, b) => a.y - b.y);
+      for (const lot of lots) {
+        const s = lot.s;
+        const x0 = lot.x - s;
+        const x1 = lot.x + s;
+        const y0 = lot.y - s;
+        const y1 = lot.y + s;
+        // south wall (faces camera in Y-squash iso)
+        g.poly([x0, y1, x1, y1, x1, y1 - h, x0, y1 - h]);
+        g.fill({ color: wall, alpha: wallA });
+        // roof
+        g.rect(x0, y0 - h, s * 2, s * 2);
+        g.fill({ color: roof, alpha: roofA });
+      }
+      return;
+    }
+    // procedural cities: lift a subset of the flat building quads already drawn
+    // by sampling local roads again with a coarser spacing
+    for (const road of city.roads) {
+      if (road.cls !== 'local') continue;
+      const pts = road.points;
+      for (let si = 0; si + 3 < pts.length; si += 2) {
+        const ax = pts[si] as number;
+        const ay = pts[si + 1] as number;
+        const bx = pts[si + 2] as number;
+        const by = pts[si + 3] as number;
+        const len = Math.hypot(bx - ax, by - ay);
+        if (len < 80) continue;
+        const dx = (bx - ax) / len;
+        const dy = (by - ay) / len;
+        const px = -dy;
+        const py = dx;
+        for (let d = 40; d < len - 40; d += 90) {
+          for (const side of [-1, 1]) {
+            const cx = ax + dx * d + px * side * 55;
+            const cy = ay + dy * d + py * side * 55;
+            const s = 22;
+            g.poly([cx - s, cy + s, cx + s, cy + s, cx + s, cy + s - h * 0.7, cx - s, cy + s - h * 0.7]);
+            g.fill({ color: wall, alpha: wallA });
+            g.rect(cx - s, cy - s - h * 0.7, s * 2, s * 2);
+            g.fill({ color: roof, alpha: roofA });
+          }
+        }
+      }
+    }
   }
 
   private drawRoads(): void {
@@ -859,6 +1100,39 @@ export class GameRenderer {
     }
   }
 
+  /** Offset a polyline perpendicular to itself (for parallel corridor bundling). */
+  private offsetPolyline(pts: number[], dist: number): number[] {
+    if (pts.length < 4 || Math.abs(dist) < 0.5) return pts.slice();
+    const n = pts.length / 2;
+    const out: number[] = new Array(pts.length);
+    for (let i = 0; i < n; i++) {
+      const x = pts[i * 2] as number;
+      const y = pts[i * 2 + 1] as number;
+      let dx: number;
+      let dy: number;
+      if (i === 0) {
+        dx = (pts[2] as number) - x;
+        dy = (pts[3] as number) - y;
+      } else if (i === n - 1) {
+        dx = x - (pts[(i - 1) * 2] as number);
+        dy = y - (pts[(i - 1) * 2 + 1] as number);
+      } else {
+        dx = (pts[(i + 1) * 2] as number) - (pts[(i - 1) * 2] as number);
+        dy = (pts[(i + 1) * 2 + 1] as number) - (pts[(i - 1) * 2 + 1] as number);
+      }
+      const len = Math.hypot(dx, dy) || 1;
+      // left-hand normal
+      out[i * 2] = x + (-dy / len) * dist;
+      out[i * 2 + 1] = y + (dx / len) * dist;
+    }
+    // pin endpoints to the original so lines still meet at stations
+    out[0] = pts[0] as number;
+    out[1] = pts[1] as number;
+    out[out.length - 2] = pts[pts.length - 2] as number;
+    out[out.length - 1] = pts[pts.length - 1] as number;
+    return out;
+  }
+
   private drawRoutes(): void {
     const ui = this.ui;
     const g = this.routesG;
@@ -874,6 +1148,19 @@ export class GameRenderer {
       for (let i = t.points.length - 2; i >= 0; i -= 2) rev.push(t.points[i] as number, t.points[i + 1] as number);
       trackByPair.set(`${t.toStationId}:${t.fromStationId}`, rev);
     }
+    // how many routes share each undirected station pair → parallel offsets
+    const pairUsers = new Map<string, number[]>();
+    for (let ri = 0; ri < ui.routes.length; ri++) {
+      const r = ui.routes[ri]!;
+      for (let i = 0; i + 1 < r.stationIds.length; i++) {
+        const a = r.stationIds[i] as number;
+        const b = r.stationIds[i + 1] as number;
+        const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+        const list = pairUsers.get(key) ?? [];
+        if (!list.includes(ri)) list.push(ri);
+        pairUsers.set(key, list);
+      }
+    }
     const strokePath = (path: number[], w: number, color: number | string, alpha: number): void => {
       g.moveTo(path[0] as number, path[1] as number);
       for (let i = 2; i < path.length; i += 2) g.lineTo(path[i] as number, path[i + 1] as number);
@@ -882,21 +1169,31 @@ export class GameRenderer {
     // global busiest segment, so ribbon thickness reads relative across lines
     let maxSegLoad = 1;
     for (const r of ui.routes) for (const l of r.segmentLoads ?? []) if (l > maxSegLoad) maxSegLoad = l;
+    const BUNDLE_GAP = 14; // world meters between parallel ribbons
     this.routePaths = [];
-    for (const r of ui.routes) {
+    for (let ri = 0; ri < ui.routes.length; ri++) {
+      const r = ui.routes[ri]!;
       const path: number[] = [];
       const segPaths: { pts: number[]; load: number }[] = [];
       for (let i = 0; i + 1 < r.stationIds.length; i++) {
         const a = r.stationIds[i] as number;
         const b = r.stationIds[i + 1] as number;
         const seg = trackByPair.get(`${a}:${b}`);
-        const segPts: number[] = [];
+        let segPts: number[] = [];
         if (seg && seg.length >= 4) {
           for (let j = 0; j < seg.length; j += 2) segPts.push(seg[j] as number, seg[j + 1] as number);
         } else {
           const sa = stationById.get(a);
           const sb = stationById.get(b);
           if (sa && sb) segPts.push(sa.x, sa.y, sb.x, sb.y);
+        }
+        // parallel-offset when several lines share this corridor
+        const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+        const users = pairUsers.get(key) ?? [ri];
+        if (users.length > 1 && segPts.length >= 4) {
+          const slot = users.indexOf(ri);
+          const offset = (slot - (users.length - 1) / 2) * BUNDLE_GAP;
+          segPts = this.offsetPolyline(segPts, offset);
         }
         if (segPts.length >= 4) {
           if (path.length === 0) path.push(segPts[0] as number, segPts[1] as number);
@@ -905,14 +1202,14 @@ export class GameRenderer {
         }
       }
       if (path.length < 4) continue;
-      // hero treatment: soft glow → dark casing
-      strokePath(path, 44, r.color, 0.08);
-      strokePath(path, 28, r.color, 0.16);
-      strokePath(path, 22, PAL.void, 0.9);
+      // hero treatment: soft glow → dark casing → bright core
+      strokePath(path, 48, r.color, 0.07);
+      strokePath(path, 30, r.color, 0.14);
+      strokePath(path, 20, PAL.void, 0.92);
       // bright core, per segment, widening with how many people ride that link
       for (const sp of segPaths) {
         const t = Math.min(1, sp.load / maxSegLoad);
-        strokePath(sp.pts, 8 + t * 10, r.color, 1);
+        strokePath(sp.pts, 7 + t * 11, r.color, 1);
       }
       // arc-length table for animated passenger-flow motes (drawn per-frame)
       const cum: number[] = [0];
@@ -958,7 +1255,7 @@ export class GameRenderer {
       const t = new Text({
         text: L.name,
         style: {
-          fontFamily: 'system-ui, sans-serif',
+          fontFamily: 'DM Sans, system-ui, sans-serif',
           fontStyle: L.kind === 'water' ? 'italic' : 'normal',
           fontWeight: L.kind === 'road' ? '500' : '600',
           fontSize: base,
@@ -1012,7 +1309,7 @@ export class GameRenderer {
 
       const label = new Text({
         text: s.name,
-        style: { fontFamily: 'system-ui, sans-serif', fontWeight: '600', fontSize: 64, fill: PAL.labelText, stroke: { color: PAL.labelHalo, width: 10 } },
+        style: { fontFamily: 'DM Sans, system-ui, sans-serif', fontWeight: '600', fontSize: 64, fill: PAL.labelText, stroke: { color: PAL.labelHalo, width: 10 } },
       });
       label.anchor.set(0.5, 0);
       label.x = s.x;
@@ -1040,27 +1337,42 @@ export class GameRenderer {
       this.cx = Math.max(-half, Math.min(half, this.cx));
       this.cy = Math.max(-half, Math.min(half, this.cy));
     }
-    // camera transform
-    this.world.scale.set(this.scale);
+    // eased pan (tutorial focus / programmatic camera)
+    if (this.camEasing) {
+      const k = 1 - Math.pow(0.0004, this.app.ticker.deltaMS / 1000);
+      this.cx += (this.targetCx - this.cx) * k;
+      this.cy += (this.targetCy - this.cy) * k;
+      if (Math.hypot(this.targetCx - this.cx, this.targetCy - this.cy) < 8) {
+        this.cx = this.targetCx;
+        this.cy = this.targetCy;
+        this.camEasing = false;
+      }
+    }
+    // camera transform (optional soft isometric Y-squash)
+    this.world.scale.set(this.scale, this.sy);
     this.world.position.set(
       this.app.screen.width / 2 - this.cx * this.scale,
-      this.app.screen.height / 2 - this.cy * this.scale,
+      this.app.screen.height / 2 - this.cy * this.sy,
     );
     this.labels.visible = this.scale > 0.12;
+    this.mapLabels.visible = this.prefs.mapLabels;
+    this.updateDayNight();
     // map labels: constant on-screen size, revealed by importance as you zoom in,
     // then decluttered so nothing overlaps
     const targetPx = 13;
     const cand: { it: { t: Text; imp: number; kind: string }; sx: number; sy: number; hw: number; hh: number; pri: number }[] = [];
     for (const it of this.mapLabelItems) {
       it.t.visible = false;
+      if (!this.prefs.mapLabels) continue;
       let gate: boolean;
       if (it.kind === 'water') gate = this.scale > (it.imp > 2.4 ? 0.045 : it.imp > 1.4 ? 0.09 : 0.18);
       else if (it.kind === 'park') gate = this.scale > (it.imp > 1.8 ? 0.07 : it.imp > 1.2 ? 0.14 : 0.26);
       else gate = this.scale > (it.imp > 2 ? 0.28 : 0.42);
       if (!gate) continue;
       const base = it.kind === 'road' ? 26 : 30 + Math.min(3, it.imp) * 5;
+      // counteract Y-squash so labels stay readable in isometric view
       const v = targetPx / (base * this.scale);
-      it.t.scale.set(v);
+      it.t.scale.set(v, this.prefs.view === 'iso' ? v / ISO_Y : v);
       const s = this.worldToScreen(it.t.x, it.t.y);
       const w = it.t.width * v * this.scale;
       const h = it.t.height * v * this.scale;
@@ -1080,8 +1392,11 @@ export class GameRenderer {
     const lodT = Math.max(0, Math.min(1, (this.scale - 0.075) / 0.09));
     this.localRoadsG.visible = lodT > 0;
     this.localRoadsG.alpha = lodT;
-    this.buildingsG.visible = lodT > 0;
+    // flat procedural lots hide in isometric mode (extrusions take over)
+    this.buildingsG.visible = lodT > 0 && this.prefs.view !== 'iso';
     this.buildingsG.alpha = lodT * 0.95;
+    this.isoBuildingsG.visible = this.prefs.view === 'iso';
+    this.isoBuildingsG.alpha = Math.max(0.35, lodT);
 
     // congestion bottleneck markers (Cities-Skyline style pulse) on the traffic layer
     const hg = this.hotspotsG;

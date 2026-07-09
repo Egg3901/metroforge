@@ -2,8 +2,12 @@ import { TICKS_PER_DAY } from '@core/constants';
 import { CoinsIcon, PeopleIcon, PinIcon, ShareIcon, ThumbIcon } from './icons';
 import { GOALS } from './goals';
 import { Wordmark } from './brand';
+import { exportNetworkCard } from './exportCard';
+import { isMuted, toggleMute, unlockAudio } from './audio';
+import { syncMuteFromAudio } from './settings';
 import { useStore } from './store';
 import type { OverlayMode } from './store';
+import { useState } from 'react';
 
 /** Map a sim tick to a wall clock within the game day. */
 function clockOf(tick: number): string {
@@ -61,13 +65,29 @@ export function HUD(): React.JSX.Element | null {
   const overlay = useStore((s) => s.overlay);
   const setOverlay = useStore((s) => s.setOverlay);
   const client = useStore((s) => s.client);
+  const scenario = useStore((s) => s.scenario);
+  const pushToast = useStore((s) => s.pushToast);
   const completedGoals = useStore((s) => s.completedGoals.length);
   const totalGoals = GOALS.length;
+  const runStars = useStore((s) => s.runStars);
+  const [muted, setMutedUi] = useState(isMuted);
   if (!ui) return null;
 
   const cashColor = ui.cash < 0 ? 'text-red-400' : ui.cash < 500_000 ? 'text-amber-400' : 'text-emerald-400';
   const net =
     ui.lastDay.fares + ui.lastDay.subsidy - ui.lastDay.operations - ui.lastDay.maintenance - ui.lastDay.interest;
+
+  const share = async (): Promise<void> => {
+    const cityLabel = scenario ? `${scenario.city} ${scenario.era}` : 'My Network';
+    const ok = await exportNetworkCard({ cityLabel, ui });
+    pushToast(ok ? 'Network card saved' : 'Could not capture the map yet', ok ? 'good' : 'warn');
+  };
+
+  const dayLabel =
+    ui.maxDay != null ? `${ui.day}/${ui.maxDay}` : String(ui.day);
+  const dayTone =
+    ui.maxDay != null && ui.day / ui.maxDay > 0.85 ? 'text-rose-400' : 'text-zinc-300';
+  const scProgress = scenario ? Math.min(1, scenario.progress(ui)) : 0;
 
   return (
     <div className="absolute top-0 left-0 right-0 bg-zinc-950/85 backdrop-blur-md border-b border-zinc-800/80 z-20 select-none">
@@ -87,6 +107,11 @@ export function HUD(): React.JSX.Element | null {
           </svg>
         </button>
         <span className="hidden sm:flex items-center mr-2"><Wordmark size={16} /></span>
+        {ui.eraLabel && (
+          <span className="hidden sm:inline text-[10px] uppercase tracking-widest text-amber-400/80 mr-2 font-semibold">
+            {ui.eraLabel}
+          </span>
+        )}
         <Stat
           icon={<CoinsIcon size={14} />}
           value={`${fmtMoney(ui.cash)} · ${net >= 0 ? '+' : ''}${fmtMoney(net)}/d`}
@@ -96,13 +121,27 @@ export function HUD(): React.JSX.Element | null {
         />
         <Stat
           icon={<span className="text-zinc-500 font-semibold">D</span>}
-          value={`${ui.day} · ${clockOf(ui.tick)}`}
-          title="Game day and time of day"
+          value={`${dayLabel} · ${clockOf(ui.tick)}`}
+          title={ui.maxDay != null ? `Day ${ui.day} of ${ui.maxDay}` : 'Game day and time of day'}
+          className={dayTone}
         />
+        {scenario && (
+          <Stat
+            icon={<span className="text-amber-400/80 font-semibold">◎</span>}
+            value={scenario.readout(ui)}
+            title={scenario.goal}
+            className="hidden md:flex text-amber-200/90"
+          />
+        )}
         <Stat icon={<PeopleIcon size={14} />} value={Math.round(ui.population).toLocaleString()} title="City population" />
         <Stat icon={<ThumbIcon size={14} />} value={`${ui.approval.toFixed(0)}%`} title="Approval rating — drives your subsidy" />
         <Stat icon={<ShareIcon size={14} />} value={`${(ui.transitShare * 100).toFixed(1)}%`} title="Transit mode share" className="hidden sm:flex text-zinc-300" />
         <Stat icon={<PinIcon size={14} />} value={`${(ui.coverage * 100).toFixed(0)}%`} title="Population within walking distance of a station" className="hidden sm:flex text-zinc-300" />
+        {scenario && (
+          <div className="hidden lg:flex items-center ml-1 mr-1 w-24 h-1.5 rounded-full bg-zinc-800 overflow-hidden" title={scenario.goal}>
+            <div className="h-full bg-amber-400 transition-all" style={{ width: `${scProgress * 100}%` }} />
+          </div>
+        )}
         <div className="ml-auto flex items-center gap-0.5 pl-2">
           <div className="hidden sm:flex rounded-lg overflow-hidden border border-zinc-800 mr-2" title="Map overlays">
             {OVERLAY_OPTIONS.map(([m, label]) => (
@@ -128,12 +167,16 @@ export function HUD(): React.JSX.Element | null {
           </button>
           <button
             onClick={() => setPanel('goals')}
-            title="Objectives"
+            title={scenario ? scenario.goal : 'Objectives'}
             aria-label="Objectives"
             className="mr-2 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-300 hover:text-zinc-100 flex items-center gap-1.5"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="0.6" fill="currentColor"/></svg>
-            <span className="tabular-nums">{completedGoals}/{totalGoals}</span>
+            <span className="tabular-nums">
+              {scenario
+                ? (runStars > 0 ? `${'★'.repeat(runStars)}` : `${Math.round(scProgress * 100)}%`)
+                : `${completedGoals}/${totalGoals}`}
+            </span>
           </button>
           <div className="flex rounded-lg overflow-hidden border border-zinc-800">
             {[0, 1, 10, 60].map((s) => (
@@ -149,8 +192,34 @@ export function HUD(): React.JSX.Element | null {
             ))}
           </div>
           <button
+            onClick={() => {
+              unlockAudio();
+              setMutedUi(toggleMute());
+              syncMuteFromAudio();
+            }}
+            title={muted ? 'Unmute' : 'Mute'}
+            className="ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
+          >
+            {muted ? 'Unmute' : 'Mute'}
+          </button>
+          <button
+            onClick={() => setPanel(useStore.getState().panel === 'settings' ? 'none' : 'settings')}
+            title="Settings"
+            aria-label="Settings"
+            className="ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
+          >
+            Settings
+          </button>
+          <button
+            onClick={() => void share()}
+            title="Share a network card"
+            className="ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
+          >
+            Share
+          </button>
+          <button
             onClick={() => client.requestSave()}
-            className="ml-2 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
+            className="ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100"
           >
             Save
           </button>

@@ -19,12 +19,15 @@ import { Rng } from './rng';
 import { runAssignment } from './transit/assignment';
 import { computeTraffic } from './transit/traffic';
 import { EVENT_DEFS, eventApprovalDelta, eventFareMult, rollEvent } from './events';
+import { APPROVAL_GRACE_DAYS, modeUnlockReady } from './scenarioRules';
 import { getRoutePath } from './transit/routePath';
 import type { GameState, Station } from './types';
 
 export interface TickEvents {
   dayCompleted?: number;
   bankrupt?: boolean;
+  /** approval-floor or time-limit failure */
+  failed?: 'approval' | 'time';
   modeUnlocked?: string;
   messages: string[];
   /** themed toasts (city events) with a tone */
@@ -42,6 +45,7 @@ export function setBankruptDays(d: number): void {
 
 export function simTick(state: GameState): TickEvents {
   const events: TickEvents = { messages: [] };
+  if (state.failed) return events;
   state.tick += 1;
 
   moveVehicles(state);
@@ -60,16 +64,50 @@ export function simTick(state: GameState): TickEvents {
     updateApproval(state);
     checkUnlocks(state, events);
     if (day % GROWTH_INTERVAL_DAYS === 0) runGrowth(state);
-    if (state.budget.cash < BANKRUPTCY_FLOOR) {
-      bankruptDays += 1;
-      if (bankruptDays >= BANKRUPTCY_GRACE_DAYS) events.bankrupt = true;
-      else events.messages.push(`Deep in the red: ${BANKRUPTCY_GRACE_DAYS - bankruptDays} days until the city takes over`);
-    } else {
-      bankruptDays = 0;
-    }
+    checkFailure(state, day, events);
   }
 
   return events;
+}
+
+function checkFailure(state: GameState, day: number, events: TickEvents): void {
+  const rules = state.scenarioRules;
+  if (state.budget.cash < BANKRUPTCY_FLOOR) {
+    bankruptDays += 1;
+    if (bankruptDays >= BANKRUPTCY_GRACE_DAYS) {
+      state.failed = 'bankrupt';
+      events.bankrupt = true;
+    } else {
+      events.messages.push(`Deep in the red: ${BANKRUPTCY_GRACE_DAYS - bankruptDays} days until the city takes over`);
+    }
+  } else {
+    bankruptDays = 0;
+  }
+  if (state.failed) return;
+
+  if (rules?.approvalFloor !== undefined) {
+    if (state.stats.approval <= rules.approvalFloor) {
+      state.lowApprovalDays += 1;
+      if (state.lowApprovalDays >= APPROVAL_GRACE_DAYS) {
+        state.failed = 'approval';
+        events.failed = 'approval';
+        events.messages.push('Approval collapsed — the board has fired you');
+      } else {
+        events.messages.push(
+          `Approval critical (${Math.round(state.stats.approval)}%): ${APPROVAL_GRACE_DAYS - state.lowApprovalDays} days to turn it around`,
+        );
+      }
+    } else {
+      state.lowApprovalDays = 0;
+    }
+  }
+  if (state.failed) return;
+
+  if (rules?.maxDay !== undefined && day > rules.maxDay) {
+    state.failed = 'time';
+    events.failed = 'time';
+    events.messages.push(`Time is up — day ${rules.maxDay} has passed without meeting the objective`);
+  }
 }
 
 function moveVehicles(state: GameState): void {
@@ -204,7 +242,8 @@ function runDailyEconomy(state: GameState, _day: number, events: TickEvents): vo
   }
   // subsidy: base scaled by approval (0.5×..1.5×), declining 2%/year
   const year = Math.floor(state.tick / TICKS_PER_DAY / 365);
-  const base = BASE_DAILY_SUBSIDY[state.difficulty] * Math.pow(0.98, year);
+  const baseSub = state.scenarioRules?.dailySubsidy ?? BASE_DAILY_SUBSIDY[state.difficulty];
+  const base = baseSub * Math.pow(0.98, year);
   const subsidy = base * (0.5 + state.stats.approval / 100);
   const interest = (b.loanBalance * b.loanRate) / 365;
 
@@ -262,12 +301,14 @@ function updateEvents(state: GameState, day: number, events: TickEvents): void {
 }
 
 function checkUnlocks(state: GameState, events: TickEvents): void {
+  // era / challenge scenarios can freeze the toolkit to startingModes
+  if (state.scenarioRules?.lockModes) return;
   for (const mode of ['tram', 'metro', 'rail'] as const) {
-    if (!state.unlockedModes.includes(mode) && state.stats.population >= MODES[mode].unlockPopulation) {
-      state.unlockedModes.push(mode);
-      events.modeUnlocked = MODES[mode].label;
-      events.messages.push(`${MODES[mode].label} unlocked — the city has grown to ${Math.round(state.stats.population / 1000)}k residents`);
-    }
+    if (state.unlockedModes.includes(mode)) continue;
+    if (!modeUnlockReady(mode, state.stats)) continue;
+    state.unlockedModes.push(mode);
+    events.modeUnlocked = MODES[mode].label;
+    events.messages.push(`${MODES[mode].label} unlocked — your network earned it`);
   }
 }
 

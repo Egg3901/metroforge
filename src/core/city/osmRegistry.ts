@@ -5,7 +5,18 @@
 import type { OsmCityData } from './osmCity';
 
 /** preset keys backed by a real OSM import */
-export const OSM_CITY_KEYS = ['nyc', 'boston', 'chicago', 'cleveland', 'la', 'atlanta'] as const;
+export const OSM_CITY_KEYS = [
+  'nyc',
+  'boston',
+  'chicago',
+  'cleveland',
+  'la',
+  'atlanta',
+  'philly',
+  'sf',
+  'dc',
+  'seattle',
+] as const;
 
 export async function loadOsmCity(key: string | undefined): Promise<OsmCityData | undefined> {
   switch (key) {
@@ -21,6 +32,14 @@ export async function loadOsmCity(key: string | undefined): Promise<OsmCityData 
       return (await import('../../data/cities/la.json')).default as unknown as OsmCityData;
     case 'atlanta':
       return (await import('../../data/cities/atlanta.json')).default as unknown as OsmCityData;
+    case 'philly':
+      return (await import('../../data/cities/philly.json')).default as unknown as OsmCityData;
+    case 'sf':
+      return (await import('../../data/cities/sf.json')).default as unknown as OsmCityData;
+    case 'dc':
+      return (await import('../../data/cities/dc.json')).default as unknown as OsmCityData;
+    case 'seattle':
+      return (await import('../../data/cities/seattle.json')).default as unknown as OsmCityData;
     default:
       return undefined;
   }

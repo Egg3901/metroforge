@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { GameRenderer } from '@render/renderer';
+import { sfxRoute, sfxStation, sfxTrack, sfxWarn, unlockAudio } from './audio';
+import { setRenderer } from './rendererBridge';
+import { getSettings, subscribeSettings } from './settings';
 import { useStore } from './store';
 
 /** Mounts the Pixi renderer and wires input → commands. */
@@ -13,13 +16,26 @@ export function GameCanvas(): React.JSX.Element {
     if (!host) return;
     const renderer = new GameRenderer();
     rendererRef.current = renderer;
+    setRenderer(renderer);
     let disposed = false;
+
+    const applyPrefs = (): void => {
+      const s = getSettings();
+      renderer.setPrefs({
+        basemap: s.basemap,
+        view: s.view,
+        dayNight: s.dayNight,
+        vignette: s.vignette,
+        mapLabels: s.mapLabels,
+      });
+    };
 
     void renderer.init(host).then(() => {
       if (disposed) {
         renderer.destroy();
         return;
       }
+      applyPrefs();
       const { client } = useStore.getState();
       client.events.onReady = (city) => renderer.setStaticCity(city);
       client.events.onFields = (payload) => renderer.setFields(payload);
@@ -32,7 +48,10 @@ export function GameCanvas(): React.JSX.Element {
         renderer.setUi(ui);
       };
 
-      renderer.callbacks.onClickWorld = (x, y) => void handleClick(x, y);
+      renderer.callbacks.onClickWorld = (x, y) => {
+        unlockAudio();
+        void handleClick(x, y);
+      };
       renderer.callbacks.onRightClick = () => {
         useStore.getState().cancelPending();
         useStore.getState().select(null, null);
@@ -102,7 +121,8 @@ export function GameCanvas(): React.JSX.Element {
       const { client, tool, mode } = st;
       if (tool === 'station') {
         const result = await client.command({ kind: 'buildStation', mode, pos: { x, y } });
-        if (!result.ok && result.error) st.pushToast(result.error, 'warn');
+        if (!result.ok && result.error) { st.pushToast(result.error, 'warn'); sfxWarn(); }
+        else sfxStation();
       } else if (tool === 'track') {
         const hit = nearestStation(x, y, 260, mode);
         if (st.trackFrom === null) {
@@ -117,7 +137,8 @@ export function GameCanvas(): React.JSX.Element {
             toStationId: hit,
             waypoints: st.trackWaypoints,
           });
-          if (!result.ok && result.error) st.pushToast(result.error, 'warn');
+          if (!result.ok && result.error) { st.pushToast(result.error, 'warn'); sfxWarn(); }
+          else sfxTrack();
           useStore.setState({ trackFrom: null, trackWaypoints: [], trackCostEstimate: null });
         } else {
           useStore.setState({ trackWaypoints: [...st.trackWaypoints, { x, y }] });
@@ -172,8 +193,8 @@ export function GameCanvas(): React.JSX.Element {
       const st = useStore.getState();
       if (st.routeStops.length < 2) return;
       const result = await st.client.command({ kind: 'createRoute', mode: st.mode, stationIds: st.routeStops });
-      if (!result.ok && result.error) st.pushToast(result.error, 'warn');
-      else st.pushToast('Route created — vehicles are rolling', 'good');
+      if (!result.ok && result.error) { st.pushToast(result.error, 'warn'); sfxWarn(); }
+      else { st.pushToast('Route created — vehicles are rolling', 'good'); sfxRoute(); }
       useStore.setState({ routeStops: [] });
       if (result.ok && result.createdId !== undefined) st.select('route', result.createdId);
     };
@@ -205,11 +226,14 @@ export function GameCanvas(): React.JSX.Element {
       updateGhost();
       rendererRef.current?.setOverlay(st.overlay);
     });
+    const unsubSettings = subscribeSettings(() => applyPrefs());
 
     return () => {
       disposed = true;
       window.removeEventListener('keydown', onKey);
       unsub();
+      unsubSettings();
+      setRenderer(null);
       rendererRef.current?.destroy();
       rendererRef.current = null;
     };

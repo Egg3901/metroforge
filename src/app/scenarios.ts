@@ -12,6 +12,8 @@ export interface ScenarioContent {
   goal: string;
   progress: (ui: UiState) => number; // 0..∞; ≥1 = won
   readout: (ui: UiState) => string;
+  /** leaderboard / daily-challenge score (higher is better) */
+  score: (ui: UiState) => number;
 }
 
 export type Scenario = ScenarioMeta & ScenarioContent;
@@ -25,45 +27,74 @@ const recovery = (ui: UiState): number => {
 };
 
 const CONTENT: Record<string, ScenarioContent> = {
-  'nyc-grid': {
-    goal: 'Reach 35% transit mode share',
-    progress: (ui) => ui.transitShare / 0.35,
-    readout: (ui) => `${pct(ui.transitShare)} / 35%`,
+  'nyc-1904': {
+    goal: 'Carry 40,000 daily subway riders before day 120',
+    progress: (ui) => ui.dailyTransitTrips / 40_000,
+    readout: (ui) => `${num(ui.dailyTransitTrips)} / 40,000`,
+    score: (ui) => Math.round(ui.dailyTransitTrips),
   },
-  'boston-hub': {
-    goal: 'Cover 65% of residents',
-    progress: (ui) => ui.coverage / 0.65,
-    readout: (ui) => `${pct(ui.coverage)} / 65%`,
+  'boston-1897': {
+    goal: 'Cover 55% of residents before day 100',
+    progress: (ui) => ui.coverage / 0.55,
+    readout: (ui) => `${pct(ui.coverage)} / 55%`,
+    score: (ui) => Math.round(ui.coverage * 10_000),
   },
-  'chicago-l': {
-    goal: 'Carry 120,000 daily riders',
-    progress: (ui) => ui.dailyTransitTrips / 120000,
-    readout: (ui) => `${num(ui.dailyTransitTrips)} / 120,000`,
-  },
-  'cleveland-comeback': {
-    goal: 'Fares cover operating costs',
-    progress: (ui) => recovery(ui),
-    readout: (ui) => `${pct(recovery(ui))} / 100%`,
-  },
-  'atlanta-sprawl': {
-    goal: 'Cover 45% of residents',
-    progress: (ui) => ui.coverage / 0.45,
-    readout: (ui) => `${pct(ui.coverage)} / 45%`,
-  },
-  'la-cars': {
-    goal: 'Reach 20% transit mode share',
+  'chicago-1892': {
+    goal: 'Reach 20% transit mode share before day 90',
     progress: (ui) => ui.transitShare / 0.2,
     readout: (ui) => `${pct(ui.transitShare)} / 20%`,
+    score: (ui) => Math.round(ui.transitShare * 10_000),
+  },
+  'cleveland-1955': {
+    goal: 'Fares cover operating costs before day 150',
+    progress: (ui) => recovery(ui),
+    readout: (ui) => `${pct(recovery(ui))} / 100%`,
+    score: (ui) => Math.round(recovery(ui) * 10_000),
+  },
+  'atlanta-1979': {
+    goal: 'Cover 40% of residents before day 140',
+    progress: (ui) => ui.coverage / 0.4,
+    readout: (ui) => `${pct(ui.coverage)} / 40%`,
+    score: (ui) => Math.round(ui.coverage * 10_000),
+  },
+  'la-1963': {
+    goal: 'Reach 12% transit mode share before day 180',
+    progress: (ui) => ui.transitShare / 0.12,
+    readout: (ui) => `${pct(ui.transitShare)} / 12%`,
+    score: (ui) => Math.round(ui.transitShare * 10_000),
+  },
+  'philly-1907': {
+    goal: 'Carry 35,000 daily transit riders before day 130',
+    progress: (ui) => ui.dailyTransitTrips / 35_000,
+    readout: (ui) => `${num(ui.dailyTransitTrips)} / 35,000`,
+    score: (ui) => Math.round(ui.dailyTransitTrips),
+  },
+  'sf-1912': {
+    goal: 'Cover 50% of residents before day 120',
+    progress: (ui) => ui.coverage / 0.5,
+    readout: (ui) => `${pct(ui.coverage)} / 50%`,
+    score: (ui) => Math.round(ui.coverage * 10_000),
+  },
+  'dc-1976': {
+    goal: 'Cover 45% of residents before day 150',
+    progress: (ui) => ui.coverage / 0.45,
+    readout: (ui) => `${pct(ui.coverage)} / 45%`,
+    score: (ui) => Math.round(ui.coverage * 10_000),
+  },
+  'seattle-2009': {
+    goal: 'Reach 15% transit mode share before day 160',
+    progress: (ui) => ui.transitShare / 0.15,
+    readout: (ui) => `${pct(ui.transitShare)} / 15%`,
+    score: (ui) => Math.round(ui.transitShare * 10_000),
   },
 };
 
 export const SCENARIOS: Scenario[] = SCENARIO_REGISTRY.map((m) => {
   const c = CONTENT[m.scenarioId];
-  if (!c) throw new Error(`scenario ${m.scenarioId} has no content`);
+  if (!c) throw new Error(`Missing scenario content for ${m.scenarioId}`);
   return { ...m, ...c };
 });
 
 export const scenarioById = (id: string): Scenario | undefined => SCENARIOS.find((s) => s.scenarioId === id);
 
-// progress is unbounded (for star tiers); expose a clamped variant for bars
 export const scenarioBar = (s: Scenario, ui: UiState): number => clamp01(s.progress(ui));

@@ -35,10 +35,20 @@ export const PALETTE = {
   building: [48, 50, 51] as RGB,
   buildingDense: [58, 60, 55] as RGB,
 
-  // ── roads — clearly lighter than the building fabric so streets read ──
-  roadLocal: 0x6b7166,
-  roadCollector: 0x7f857a,
-  roadArterial: 0x969c8e,
+  // ── satellite basemap (aerial-inspired; still stylized, no external tiles) ──
+  satLand: [52, 68, 42] as RGB,
+  satLandUrban: [78, 74, 68] as RGB,
+  satWaterDeep: [28, 58, 78] as RGB,
+  satWaterShallow: [48, 92, 108] as RGB,
+  satShore: [140, 128, 96] as RGB,
+  satPark: [46, 92, 52] as RGB,
+  satBuilding: [92, 88, 82] as RGB,
+  satBuildingDense: [110, 104, 96] as RGB,
+
+  // ── roads — muted, clearly lighter than fabric but never competing with lines ──
+  roadLocal: 0x4a4f4c,
+  roadCollector: 0x5c625c,
+  roadArterial: 0x6e756e,
   roadCasing: 0x0d0f12,
 
   // ── transit (the hero — bright, saturated) ──
@@ -54,3 +64,33 @@ export const MODE_COLOR = {
   metro: 0xff5d6c,
   rail: 0x7ef29a,
 } as const;
+
+/**
+ * Day/night wash over the map (not the React HUD). Returns a multiply-ish
+ * overlay color + alpha for the given hour-of-day (0..24). Night deepens,
+ * dawn/dusk warm briefly; midday is nearly clear so transit stays vivid.
+ */
+export function dayNightWash(hour: number): { color: number; alpha: number } {
+  // night 22–5, dawn ~6, day 8–17, dusk ~19
+  let night = 0;
+  if (hour < 5) night = 1;
+  else if (hour < 7) night = 1 - (hour - 5) / 2;
+  else if (hour < 18) night = 0;
+  else if (hour < 21) night = (hour - 18) / 3;
+  else night = 1;
+
+  let warm = 0;
+  if (hour >= 5.5 && hour < 8) warm = 1 - Math.abs(hour - 6.75) / 1.25;
+  else if (hour >= 17.5 && hour < 20.5) warm = 1 - Math.abs(hour - 19) / 1.5;
+  warm = Math.max(0, Math.min(1, warm));
+
+  if (warm > 0.05) {
+    // amber dusk/dawn veil
+    return { color: 0xff9a4a, alpha: 0.06 + warm * 0.1 };
+  }
+  if (night > 0.02) {
+    // deep blue night — keeps line colors readable
+    return { color: 0x0a1528, alpha: 0.08 + night * 0.28 };
+  }
+  return { color: 0x000000, alpha: 0 };
+}

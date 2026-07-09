@@ -1,11 +1,21 @@
 @import 'tailwindcss';
 
+@theme {
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Fraunces', 'DM Sans', ui-serif, Georgia, serif;
+}
+
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
   overscroll-behavior: none;
+  font-family: var(--font-sans);
+}
+
+.font-display {
+  font-family: var(--font-display);
 }
 
 canvas {

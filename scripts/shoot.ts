@@ -33,7 +33,18 @@ async function main(): Promise<void> {
   }
 
   // new-game screen: pick the city, then start
-  const LABELS: Record<string, string> = { nyc: 'New York', la: 'Los Angeles', boston: 'Boston', chicago: 'Chicago', cleveland: 'Cleveland', atlanta: 'Atlanta' };
+  const LABELS: Record<string, string> = {
+    nyc: 'New York',
+    la: 'Los Angeles',
+    boston: 'Boston',
+    chicago: 'Chicago',
+    cleveland: 'Cleveland',
+    atlanta: 'Atlanta',
+    philly: 'Philadelphia',
+    sf: 'San Francisco',
+    dc: 'Washington',
+    seattle: 'Seattle',
+  };
   await page.getByRole('button', { name: 'Free Play' }).click();
   await page.waitForTimeout(300);
   await page.getByRole('button', { name: LABELS[preset] ?? preset }).first().click();

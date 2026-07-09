@@ -25,11 +25,14 @@ const TOOLS: { id: Tool; label: string; key: string; icon: (p: { size?: number }
 ];
 
 function HintCard(): React.JSX.Element | null {
+  const tutorialActive = useStore((s) => s.tutorialActive);
   const tool = useStore((s) => s.tool);
   const mode = useStore((s) => s.mode);
   const trackFrom = useStore((s) => s.trackFrom);
   const trackCostEstimate = useStore((s) => s.trackCostEstimate);
   const routeStops = useStore((s) => s.routeStops);
+  // the tutorial coach owns the copy while it's active
+  if (tutorialActive) return null;
   if (tool === 'station') {
     return (
       <div className="text-xs text-zinc-400 leading-relaxed">
@@ -79,7 +82,15 @@ export function Toolbar(): React.JSX.Element | null {
           key={m}
           disabled={!unlocked}
           onClick={() => setMode(m)}
-          title={unlocked ? MODES[m].label : `Unlocks at ${(MODES[m].unlockPopulation / 1000).toFixed(0)}k population`}
+          title={
+            unlocked
+              ? MODES[m].label
+              : m === 'tram'
+                ? 'Earn 1,000 daily riders (or 50k pop)'
+                : m === 'metro'
+                  ? 'Reach 10% share or 50% coverage'
+                  : 'Reach 25% share or 50k daily riders'
+          }
           className={`flex items-center justify-center gap-1.5 rounded-lg transition-colors ${compact ? 'p-2.5' : 'px-2 py-2 flex-1'} ${
             active
               ? 'bg-zinc-800 ring-1 ring-amber-400/70 ' + MODE_TINT[m]
@@ -104,7 +115,9 @@ export function Toolbar(): React.JSX.Element | null {
           onClick={() => setTool(t.id)}
           title={`${t.label} (${t.key})`}
           className={`flex items-center gap-2 rounded-lg transition-colors ${compact ? 'p-2.5 justify-center' : 'px-2.5 py-2 w-full'} ${
-            active ? 'bg-amber-500 text-zinc-950' : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-200'
+            active
+              ? 'bg-amber-500 text-zinc-950 ring-2 ring-amber-300/50'
+              : 'text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-200'
           }`}
         >
           <Icon size={compact ? 20 : 16} />

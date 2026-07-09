@@ -2,16 +2,18 @@ import { useState, useEffect } from 'react';
 import { GameCanvas } from './GameCanvas';
 import { HUD } from './HUD';
 import { Toolbar } from './Toolbar';
-import { BudgetPanel, GoalsPanel, RoutePanel, RoutesPanel, StationPanel } from './Panels';
+import { BudgetPanel, GoalsPanel, RoutePanel, RoutesPanel, SettingsPanel, StationPanel } from './Panels';
 import { CITY_PRESETS } from '@core/city/presets';
-import type { MapSize } from '@core/city/presets';
 import { OSM_CITY_KEYS } from '@core/city/osmRegistry';
 import { Logo, Wordmark, TAGLINE } from './brand';
 import { SCENARIOS } from './scenarios';
+import { dailyChallengeFor } from './daily';
 import { isUnlocked, starsToUnlock, totalStars } from '@content/campaign';
 import { MAX_STARS } from '@content/scenarioRegistry';
 import { authenticate, fetchLeaderboard, signOut, type LeaderEntry } from './api';
 import { useStore } from './store';
+import { TutorialCard } from './TutorialCard';
+import { clearTutorialDone, loadTutorialDone } from './tutorial';
 
 const randomSeed = (): number => Math.floor(Math.random() * 1e9);
 const seedFrom = (s: string): number => {
@@ -20,13 +22,26 @@ const seedFrom = (s: string): number => {
   return n >>> 0;
 };
 const DIFF_TONE: Record<string, string> = { easy: 'text-emerald-400', normal: 'text-sky-400', hard: 'text-rose-400' };
+const TIER_LABEL: Record<number, string> = {
+  1: 'Founding eras',
+  2: 'Mid-century pressure',
+  3: 'The hardest sell',
+};
+
+/** Prefer a dense, teachable map for first-run free play. */
+const TUTORIAL_CITY = 'chicago';
 
 function Toasts(): React.JSX.Element {
   const toasts = useStore((s) => s.toasts);
   const dismiss = useStore((s) => s.dismissToast);
+  const tutorialActive = useStore((s) => s.tutorialActive);
   const tone = { info: 'border-zinc-600', warn: 'border-red-500', good: 'border-emerald-500' };
+  // sit above the tutorial coach card when it's on screen
+  const pos = tutorialActive
+    ? 'absolute top-14 right-2 md:right-4'
+    : 'absolute bottom-28 md:bottom-4 right-2 md:right-4';
   return (
-    <div className="absolute bottom-28 md:bottom-4 right-2 md:right-4 flex flex-col gap-2 z-30 max-w-[85vw] md:max-w-sm">
+    <div className={`${pos} flex flex-col gap-2 z-30 max-w-[85vw] md:max-w-sm`}>
       {toasts.map((t) => (
         <button
           key={t.id}
@@ -44,16 +59,20 @@ function FreePlay(): React.JSX.Element {
   const start = useStore((s) => s.start);
   // real cities only — procedural gen is retired from the player experience
   const cities = CITY_PRESETS.filter((p) => p.real);
+  const teachFirst = !loadTutorialDone();
   const [seed, setSeed] = useState(() => String(randomSeed()));
   const [difficulty, setDifficulty] = useState<'easy' | 'normal' | 'hard'>('normal');
-  const [presetKey, setPresetKey] = useState<string>('__random');
-  const [size, setSize] = useState<MapSize>('medium');
+  const [presetKey, setPresetKey] = useState<string>(teachFirst ? TUTORIAL_CITY : '__random');
   const preset = cities.find((p) => p.key === presetKey);
   const chip = (active: boolean): string =>
     `flex-1 py-2 rounded-lg text-sm capitalize transition-colors ${active ? 'bg-amber-500 text-zinc-950 font-semibold' : 'bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700'}`;
   const launch = (): void => {
-    const key = presetKey === '__random' ? OSM_CITY_KEYS[Math.floor(Math.random() * OSM_CITY_KEYS.length)]! : presetKey;
-    start(seedFrom(seed), difficulty, { size, presetKey: key });
+    const key = teachFirst
+      ? (presetKey === '__random' ? TUTORIAL_CITY : presetKey)
+      : presetKey === '__random'
+        ? OSM_CITY_KEYS[Math.floor(Math.random() * OSM_CITY_KEYS.length)]!
+        : presetKey;
+    start(seedFrom(seed), difficulty, { presetKey: key });
   };
   return (
     <div className="space-y-4">
@@ -71,12 +90,13 @@ function FreePlay(): React.JSX.Element {
             </button>
           ))}
         </div>
-        <p className="text-xs text-zinc-500 mt-1.5 min-h-[1.5rem]">{preset ? preset.blurb : 'A random real city each time you play.'}</p>
-      </div>
-      <div className="flex gap-2">
-        {(['small', 'medium', 'large'] as const).map((sz) => (
-          <button key={sz} onClick={() => setSize(sz)} className={chip(size === sz)}>{sz}</button>
-        ))}
+        <p className="text-xs text-zinc-500 mt-1.5 min-h-[1.5rem]">
+          {teachFirst && presetKey === TUTORIAL_CITY
+            ? 'First lesson defaults to Chicago — a clear grid for learning the loop.'
+            : preset
+              ? preset.blurb
+              : 'A random real city each time you play.'}
+        </p>
       </div>
       <div className="flex gap-2">
         {(['easy', 'normal', 'hard'] as const).map((d) => (
@@ -91,7 +111,7 @@ function FreePlay(): React.JSX.Element {
       </label>
       <button onClick={launch}
         className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold transition-colors">
-        Found a Transit Authority
+        {teachFirst ? 'Start the first-city lesson' : 'Found a Transit Authority'}
       </button>
     </div>
   );
@@ -111,51 +131,102 @@ function ScenarioList(): React.JSX.Element {
   const startScenario = useStore((s) => s.startScenario);
   const stars = useStore((s) => s.stars);
   const banked = totalStars(stars);
+  const tiers = [...new Set(SCENARIOS.map((s) => s.tier))].sort((a, b) => a - b);
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-3">
       <div className="flex items-center justify-between text-xs text-zinc-500 px-0.5">
-        <span>Earn stars to unlock new cities</span>
+        <span>Historical eras · earn stars to unlock</span>
         <span className="text-amber-300/90 font-mono">{banked} / {MAX_STARS} ★</span>
       </div>
-      {SCENARIOS.map((sc) => {
-        const unlocked = isUnlocked(sc, banked);
-        const need = starsToUnlock(sc, banked);
-        const earned = stars[sc.scenarioId] ?? 0;
+      {tiers.map((tier) => {
+        const rows = SCENARIOS.filter((s) => s.tier === tier);
+        const gate = Math.min(...rows.map((s) => s.unlockStars));
         return (
-          <button
-            key={sc.scenarioId}
-            disabled={!unlocked}
-            onClick={() => unlocked && startScenario(sc, randomSeed())}
-            className={`group text-left rounded-xl border p-3.5 transition-colors ${
-              unlocked
-                ? 'border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 hover:border-zinc-700'
-                : 'border-zinc-800/60 bg-zinc-900/30 opacity-70 cursor-not-allowed'
-            }`}
-          >
-            <div className="flex items-baseline gap-2">
-              <span className="text-base leading-none">{sc.flag}</span>
-              <span className="font-semibold text-zinc-100">{sc.label}</span>
-              <span className="text-xs text-zinc-500">{sc.city}</span>
-              <span className={`ml-auto text-[10px] font-bold uppercase tracking-wide ${DIFF_TONE[sc.difficulty]}`}>{sc.difficulty}</span>
+          <div key={tier} className="space-y-2">
+            <div className="flex items-baseline justify-between px-0.5 pt-1">
+              <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-400 font-semibold">
+                Tier {tier} · {TIER_LABEL[tier] ?? `Tier ${tier}`}
+              </div>
+              {gate > 0 && (
+                <div className="text-[10px] text-zinc-600 font-mono">
+                  {banked >= gate ? 'unlocked' : `${gate} ★ to open`}
+                </div>
+              )}
             </div>
-            <p className="text-xs text-zinc-400 mt-1">{sc.description}</p>
-            {unlocked ? (
-              <div className="flex items-center gap-2 mt-2 text-[11px]">
-                <span className="flex items-center gap-1.5 text-amber-300/90">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                  {sc.goal}
-                </span>
-                <span className="ml-auto"><Stars earned={earned} /></span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 mt-2 text-[11px] text-zinc-500">
-                <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 uppercase tracking-wide text-[9px] font-bold">Locked</span>
-                <span>Earn {need} more star{need > 1 ? 's' : ''} to unlock</span>
-              </div>
-            )}
-          </button>
+            {rows.map((sc) => {
+              const unlocked = isUnlocked(sc, banked);
+              const need = starsToUnlock(sc, banked);
+              const earned = stars[sc.scenarioId] ?? 0;
+              return (
+                <button
+                  key={sc.scenarioId}
+                  disabled={!unlocked}
+                  onClick={() => unlocked && startScenario(sc, randomSeed())}
+                  className={`group text-left w-full rounded-xl border p-3.5 transition-colors ${
+                    unlocked
+                      ? 'border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60 hover:border-zinc-700'
+                      : 'border-zinc-800/60 bg-zinc-900/30 opacity-70 cursor-not-allowed'
+                  }`}
+                >
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-base leading-none">{sc.flag}</span>
+                    <span className="font-semibold text-zinc-100">{sc.label}</span>
+                    <span className="text-xs text-zinc-500">{sc.city} · {sc.era}</span>
+                    <span className={`ml-auto text-[10px] font-bold uppercase tracking-wide ${DIFF_TONE[sc.difficulty]}`}>{sc.difficulty}</span>
+                  </div>
+                  <p className="text-xs text-zinc-400 mt-1">{sc.description}</p>
+                  {unlocked ? (
+                    <div className="flex items-center gap-2 mt-2 text-[11px]">
+                      <span className="flex items-center gap-1.5 text-amber-300/90">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                        {sc.goal}
+                      </span>
+                      <span className="ml-auto"><Stars earned={earned} /></span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 mt-2 text-[11px] text-zinc-500">
+                      <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 uppercase tracking-wide text-[9px] font-bold">Locked</span>
+                      <span>Earn {need} more star{need > 1 ? 's' : ''} to unlock</span>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         );
       })}
+    </div>
+  );
+}
+
+function DailyPanel(): React.JSX.Element {
+  const startScenario = useStore((s) => s.startScenario);
+  const daily = dailyChallengeFor();
+  const sc = daily.scenario;
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-amber-500/30 bg-zinc-900/60 p-4">
+        <div className="text-[10px] uppercase tracking-[0.18em] text-amber-400/90 font-semibold mb-1">Today · {daily.dayKey}</div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-base">{sc.flag}</span>
+          <span className="font-display text-xl text-zinc-50">{sc.city} {sc.era}</span>
+        </div>
+        <p className="text-sm text-zinc-400 mt-1.5">{sc.description}</p>
+        <p className="text-xs text-amber-300/90 mt-2">{sc.goal}</p>
+        <p className="text-[11px] text-zinc-500 mt-1">
+          Shared seed · {sc.rules.maxDay} day limit · modes: {sc.rules.startingModes.join(', ')}
+        </p>
+        <button
+          onClick={() => startScenario(sc, daily.seed)}
+          className="mt-4 w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold transition-colors"
+        >
+          Play today&apos;s challenge
+        </button>
+      </div>
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+        <div className="text-xs uppercase tracking-widest text-zinc-500 mb-2">Today&apos;s board</div>
+        <Leaderboard scenario={daily.challengeId} />
+      </div>
     </div>
   );
 }
@@ -169,7 +240,11 @@ function AuthModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const submit = async (): Promise<void> => {
     setBusy(true); setErr('');
-    try { setAccount(await authenticate(mode, name.trim(), password)); onClose(); }
+    try {
+      const acct = await authenticate(mode, name.trim(), password);
+      setAccount(acct);
+      onClose();
+    }
     catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); } finally { setBusy(false); }
   };
   return (
@@ -206,10 +281,11 @@ function Leaderboard({ scenario }: { scenario: string }): React.JSX.Element {
         <div key={i} className={`flex items-center gap-2 py-1 text-sm ${e.name === myName ? 'text-amber-300' : 'text-zinc-300'}`}>
           <span className="w-5 text-right text-zinc-500 tabular-nums">{i + 1}</span>
           <span className="flex-1 truncate">{e.name}</span>
+          {e.verified && <span className="text-[9px] uppercase tracking-wide text-emerald-500/80 font-bold" title="Server-verified replay">✓</span>}
           <span className="tabular-nums text-zinc-400">{Math.round(e.value).toLocaleString()}</span>
         </div>
       ))}
-      <div className="text-[10px] text-zinc-600 mt-1">daily riders</div>
+      <div className="text-[10px] text-zinc-600 mt-1">score · ✓ = verified</div>
     </div>
   );
 }
@@ -218,14 +294,27 @@ function NewGameScreen(): React.JSX.Element {
   const client = useStore((s) => s.client);
   const account = useStore((s) => s.account);
   const setAccount = useStore((s) => s.setAccount);
-  const [tab, setTab] = useState<'scenarios' | 'free'>('scenarios');
+  const syncCampaign = useStore((s) => s.syncCampaign);
+  const [tab, setTab] = useState<'daily' | 'scenarios' | 'free'>(() =>
+    loadTutorialDone() ? 'daily' : 'free',
+  );
   const [authOpen, setAuthOpen] = useState(false);
+  const setPanel = useStore((s) => s.setPanel);
   const hasSave = localStorage.getItem('metroforge:save:auto') !== null;
+  useEffect(() => {
+    if (account) void syncCampaign();
+  }, [account, syncCampaign]);
   return (
     <div className="absolute inset-0 z-40 bg-zinc-950 overflow-y-auto">
       {/* subtle brand glow */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_40%_at_50%_0%,rgba(255,182,61,0.08),transparent)]" />
-      <div className="absolute top-3 right-3 z-10 text-xs">
+      <div className="absolute top-3 right-3 z-10 text-xs flex items-center gap-2">
+        <button
+          onClick={() => setPanel('settings')}
+          className="px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 text-zinc-300 hover:text-zinc-100"
+        >
+          Settings
+        </button>
         {account ? (
           <div className="flex items-center gap-2 text-zinc-400">
             <span className="text-zinc-200">{account.name}</span>
@@ -240,11 +329,11 @@ function NewGameScreen(): React.JSX.Element {
         <div className="flex flex-col items-center text-center mb-7">
           <Logo size={64} />
           <div className="mt-3"><Wordmark size={30} /></div>
-          <p className="text-zinc-400 text-sm mt-2">{TAGLINE}</p>
+          <p className="text-zinc-400 text-sm mt-2 font-sans">{TAGLINE}</p>
         </div>
 
         <div className="flex gap-1 p-1 bg-zinc-900/70 rounded-xl mb-4">
-          {([['scenarios', 'Scenarios'], ['free', 'Free Play']] as const).map(([k, label]) => (
+          {([['daily', 'Daily'], ['scenarios', 'Eras'], ['free', 'Free Play']] as const).map(([k, label]) => (
             <button key={k} onClick={() => setTab(k)}
               className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${tab === k ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'}`}>
               {label}
@@ -252,20 +341,33 @@ function NewGameScreen(): React.JSX.Element {
           ))}
         </div>
 
-        {tab === 'scenarios' ? <ScenarioList /> : <FreePlay />}
+        {tab === 'daily' ? <DailyPanel /> : tab === 'scenarios' ? <ScenarioList /> : <FreePlay />}
 
         {hasSave && (
           <button
             onClick={() => {
               const json = localStorage.getItem('metroforge:save:auto');
-              if (json) { client.loadSave(json); useStore.setState({ started: true }); }
+              if (json) {
+                client.loadSave(json);
+                useStore.setState({ started: true, tutorialActive: false, tutorialStep: 0 });
+              }
             }}
             className="mt-4 w-full py-2.5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-300 text-sm">
             Continue last save
           </button>
         )}
+        {loadTutorialDone() && (
+          <button
+            onClick={() => {
+              clearTutorialDone();
+              useStore.getState().pushToast('Tutorial will start on your next city', 'info');
+            }}
+            className="mt-2 w-full py-2 rounded-xl text-zinc-500 hover:text-zinc-300 text-xs transition-colors">
+            Replay the first-city lesson (Free Play)
+          </button>
+        )}
         <p className="text-[11px] text-zinc-600 text-center mt-auto pt-6">
-          Buses first; grow to unlock tram · metro · rail. Keys: 1–4 modes · S T R B · Space pause.
+          Learn in Free Play · then chase eras and the daily. Keys: 1–4 modes · S T R B · Space pause.
         </p>
       </div>
     </div>
@@ -296,18 +398,24 @@ function WinOverlay(): React.JSX.Element {
   const account = useStore((s) => s.account);
   const runStars = useStore((s) => s.runStars);
   const [authOpen, setAuthOpen] = useState(false);
+  const isDaily = scenario?.scenarioId.startsWith('daily-') ?? false;
   return (
     <div className="absolute inset-0 z-50 bg-zinc-950/92 backdrop-blur-sm flex items-center justify-center px-6 overflow-y-auto py-8">
       <div className="text-center max-w-sm w-full">
         <div className="flex justify-center mb-4"><Logo size={56} /></div>
         <div className="text-emerald-400 text-xs font-bold uppercase tracking-widest">Objective complete</div>
-        <h2 className="text-3xl font-bold text-zinc-100 mt-2">{scenario?.label ?? 'You did it'}</h2>
-        <div className="text-4xl mt-3 tracking-widest">
-          {[0, 1, 2].map((i) => (
-            <span key={i} className={i < runStars ? 'text-amber-400' : 'text-zinc-700'}>★</span>
-          ))}
-        </div>
-        <p className="text-zinc-400 mt-2">{scenario ? `${scenario.city} — ${scenario.goal}.` : ''} Keep building to earn more stars.</p>
+        <h2 className="font-display text-3xl font-bold text-zinc-100 mt-2">{scenario?.label ?? 'You did it'}</h2>
+        {!isDaily && (
+          <div className="text-4xl mt-3 tracking-widest">
+            {[0, 1, 2].map((i) => (
+              <span key={i} className={i < runStars ? 'text-amber-400' : 'text-zinc-700'}>★</span>
+            ))}
+          </div>
+        )}
+        <p className="text-zinc-400 mt-2">
+          {scenario ? `${scenario.city} ${scenario.era} — ${scenario.goal}.` : ''}
+          {isDaily ? ' Check the daily board.' : ' Keep building to earn more stars.'}
+        </p>
 
         {scenario && (
           <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
@@ -331,11 +439,37 @@ function WinOverlay(): React.JSX.Element {
   );
 }
 
+function FailOverlay(): React.JSX.Element | null {
+  const failed = useStore((s) => s.ui?.failed ?? null);
+  const bankrupt = useStore((s) => s.ui?.bankrupt ?? false);
+  const reason = failed ?? (bankrupt ? 'bankrupt' : null);
+  if (!reason) return null;
+  const copy =
+    reason === 'approval'
+      ? { title: 'Voted Out', body: 'Approval collapsed and the board fired you.' }
+      : reason === 'time'
+        ? { title: 'Time Up', body: 'The deadline passed before you met the objective.' }
+        : { title: 'Bankruptcy', body: 'The city has taken over your transit authority.' };
+  return (
+    <div className="absolute inset-0 z-40 bg-zinc-950/90 flex items-center justify-center px-6">
+      <div className="text-center space-y-4 max-w-sm">
+        <h2 className="font-display text-3xl font-bold text-red-400">{copy.title}</h2>
+        <p className="text-zinc-400">{copy.body}</p>
+        <button
+          onClick={() => useStore.setState({ started: false, won: false, scenario: null })}
+          className="px-6 py-2 rounded bg-amber-500 text-zinc-950 font-bold"
+        >
+          Back to menu
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function App(): React.JSX.Element {
   const started = useStore((s) => s.started);
   const panel = useStore((s) => s.panel);
   const won = useStore((s) => s.won);
-  const bankrupt = useStore((s) => s.ui?.bankrupt ?? false);
   return (
     <div className="fixed inset-0 bg-zinc-950">
       <GameCanvas />
@@ -347,20 +481,12 @@ export function App(): React.JSX.Element {
       {started && panel === 'budget' && <BudgetPanel />}
       {started && panel === 'goals' && <GoalsPanel />}
       {started && panel === 'routes' && <RoutesPanel />}
+      {(started || panel === 'settings') && panel === 'settings' && <SettingsPanel />}
       <Toasts />
+      {started && <TutorialCard />}
       {started && won && <WinOverlay />}
+      {started && <FailOverlay />}
       {!started && <NewGameScreen />}
-      {bankrupt && (
-        <div className="absolute inset-0 z-40 bg-zinc-950/90 flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <h2 className="text-3xl font-bold text-red-400">Bankruptcy</h2>
-            <p className="text-zinc-400">The city has taken over your transit authority.</p>
-            <button onClick={() => location.reload()} className="px-6 py-2 rounded bg-amber-500 text-zinc-950 font-bold">
-              New game
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

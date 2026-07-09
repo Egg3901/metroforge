@@ -31,7 +31,7 @@ export function Wordmark({ size = 28 }: { size?: number }): React.JSX.Element {
   return (
     <div className="flex items-center gap-2 select-none">
       <Logo size={size * 1.3} />
-      <span className="font-bold tracking-tight text-zinc-100" style={{ fontSize: size }}>
+      <span className="font-display font-semibold tracking-tight text-zinc-100" style={{ fontSize: size }}>
         Metro<span className="text-amber-400">Forge</span>
       </span>
     </div>

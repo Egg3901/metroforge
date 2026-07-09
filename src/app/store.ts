@@ -4,8 +4,10 @@ import type { UiState } from '@host/protocol';
 import { SimClient } from '@host/client';
 import { GOALS, completedGoalIds } from './goals';
 import type { Scenario } from './scenarios';
-import { loadStars, recordStars, starsForProgress, type StarMap } from '@content/campaign';
-import { loadAccount, submitScore, type Account } from './api';
+import { applyCloudStars, loadStars, persistStars, recordStars, starsForProgress, type StarMap } from '@content/campaign';
+import { fetchCampaign, loadAccount, pushCampaign, submitScore, type Account } from './api';
+import { sfxFail, sfxGood, unlockAudio } from './audio';
+import { loadTutorialDone, markTutorialDone, TUTORIAL_STEPS } from './tutorial';
 
 export type Tool = 'select' | 'station' | 'track' | 'route' | 'bulldoze';
 export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic' | 'unserved';
@@ -23,29 +25,30 @@ interface AppState {
   mode: TransitMode;
   speed: number;
   started: boolean;
-  /** track tool: origin station + waypoints in progress */
   trackFrom: number | null;
   trackWaypoints: { x: number; y: number }[];
   trackCostEstimate: number | null;
-  /** route tool: station ids clicked so far */
   routeStops: number[];
   selectedStationId: number | null;
   selectedRouteId: number | null;
   toasts: Toast[];
-  panel: 'none' | 'budget' | 'station' | 'route' | 'goals' | 'routes';
+  panel: 'none' | 'budget' | 'station' | 'route' | 'goals' | 'routes' | 'settings';
   overlay: OverlayMode;
-  /** ids of completed progression goals */
   completedGoals: string[];
-  /** active scenario + whether its objective has been met */
   scenario: Scenario | null;
   won: boolean;
-  /** best stars earned per scenarioId (campaign progression) */
+  /** seed used for the active run (for daily / replay) */
+  runSeed: number | null;
   stars: StarMap;
-  /** stars awarded to the active run so far (for the win overlay) */
   runStars: number;
-  /** signed-in account (for leaderboards), or null */
   account: Account | null;
   setAccount: (a: Account | null) => void;
+  /** pull/push campaign stars with the signed-in account */
+  syncCampaign: () => Promise<void>;
+  tutorialActive: boolean;
+  tutorialStep: number;
+  advanceTutorial: () => void;
+  skipTutorial: () => void;
 
   setTool: (t: Tool) => void;
   setMode: (m: TransitMode) => void;
@@ -62,44 +65,80 @@ interface AppState {
 }
 
 let toastId = 1;
+let scorePosted = false;
+let lastFailed: string | null = null;
+
+async function postVerifiedScore(sc: Scenario, ui: UiState, client: SimClient, token: string, pushToast: AppState['pushToast']): Promise<void> {
+  try {
+    const replay = await client.requestReplay();
+    const { verified } = await submitScore(token, {
+      scenario: sc.scenarioId,
+      value: sc.score(ui),
+      city: sc.city,
+      replay,
+    });
+    pushToast(verified ? 'Score verified on the server' : 'Score posted (pending verify)', 'good');
+    sfxGood();
+  } catch {
+    pushToast('Could not post score', 'warn');
+  }
+}
 
 export const useStore = create<AppState>((set, get) => {
   const client = new SimClient();
 
   client.events.onUi = (ui) => {
-    // celebrate any newly-completed goals
     const prev = get().completedGoals;
     const done = completedGoalIds(ui);
     if (done.length > prev.length) {
       for (const id of done) {
         if (!prev.includes(id)) {
           const g = GOALS.find((x) => x.id === id);
-          if (g) get().pushToast(`Goal complete — ${g.label}`, 'good');
+          if (g) {
+            get().pushToast(`Goal complete — ${g.label}`, 'good');
+            sfxGood();
+          }
         }
       }
       set({ ui, completedGoals: done });
     } else {
       set({ ui });
     }
-    // scenario progress → win + stars (1 at goal, 2 at 1.3x, 3 at 1.7x)
+
+    // sync mode if current mode got locked out (era starts)
+    if (!ui.unlockedModes.includes(get().mode) && ui.unlockedModes[0]) {
+      set({ mode: ui.unlockedModes[0]! });
+    }
+
+    if (ui.failed && ui.failed !== lastFailed) {
+      lastFailed = ui.failed;
+      sfxFail();
+    }
+    if (!ui.failed) lastFailed = null;
+
     const sc = get().scenario;
-    if (sc) {
+    if (sc && !ui.failed) {
       const p = sc.progress(ui);
       if (!get().won && p >= 1) {
         set({ won: true });
+        sfxGood();
         const acct = get().account;
-        if (acct) {
-          submitScore(acct.token, sc.scenarioId, Math.round(ui.dailyTransitTrips), sc.city)
-            .then(() => get().pushToast('Score posted to the leaderboard', 'good'))
-            .catch(() => {});
+        if (acct && !scorePosted) {
+          scorePosted = true;
+          void postVerifiedScore(sc, ui, client, acct.token, get().pushToast);
         }
       }
-      const earned = starsForProgress(p);
-      if (earned > (get().stars[sc.scenarioId] ?? 0)) {
-        set({ stars: recordStars(sc.scenarioId, earned), runStars: Math.max(earned, get().runStars) });
-        get().pushToast(`${'★'.repeat(earned)} ${sc.city}: ${earned} star${earned > 1 ? 's' : ''}`, 'good');
-      } else if (earned > get().runStars) {
-        set({ runStars: earned });
+      // campaign stars only for non-daily scenarios
+      if (!sc.scenarioId.startsWith('daily-')) {
+        const earned = starsForProgress(p);
+        if (earned > (get().stars[sc.scenarioId] ?? 0)) {
+          const next = recordStars(sc.scenarioId, earned);
+          set({ stars: next, runStars: Math.max(earned, get().runStars) });
+          get().pushToast(`${'★'.repeat(earned)} ${sc.city}: ${earned} star${earned > 1 ? 's' : ''}`, 'good');
+          if (get().account) void get().syncCampaign();
+        } else if (earned > get().runStars) {
+          set({ runStars: earned });
+        }
       }
     }
   };
@@ -128,10 +167,47 @@ export const useStore = create<AppState>((set, get) => {
     completedGoals: [],
     scenario: null,
     won: false,
+    runSeed: null,
     stars: loadStars(),
     runStars: 0,
     account: loadAccount(),
-    setAccount: (account) => set({ account }),
+    setAccount: (account) => {
+      set({ account });
+      if (account) void get().syncCampaign();
+    },
+    syncCampaign: async () => {
+      const acct = get().account;
+      if (!acct) return;
+      try {
+        const cloud = await fetchCampaign(acct.token);
+        const mergedLocal = applyCloudStars(cloud);
+        const pushed = await pushCampaign(acct.token, mergedLocal);
+        const final = applyCloudStars(pushed);
+        persistStars(final);
+        set({ stars: final });
+      } catch {
+        /* offline / unsigned — local stars still work */
+      }
+    },
+    tutorialActive: false,
+    tutorialStep: 0,
+    advanceTutorial: () => {
+      const { tutorialStep, tutorialActive } = get();
+      if (!tutorialActive) return;
+      const next = tutorialStep + 1;
+      if (next >= TUTORIAL_STEPS.length) {
+        markTutorialDone();
+        set({ tutorialActive: false, tutorialStep: 0, overlay: 'none', tool: 'select' });
+        get().pushToast('Tutorial complete — keep building', 'good');
+        return;
+      }
+      set({ tutorialStep: next });
+    },
+    skipTutorial: () => {
+      markTutorialDone();
+      set({ tutorialActive: false, tutorialStep: 0, overlay: 'none' });
+      get().pushToast('Tutorial skipped — reopen anytime from Home', 'info');
+    },
 
     setTool: (tool) => set({ tool, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
     setMode: (mode) => set({ mode, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
@@ -141,12 +217,45 @@ export const useStore = create<AppState>((set, get) => {
     },
     setUi: (ui) => set({ ui }),
     start: (seed, difficulty, opts) => {
+      scorePosted = false;
+      lastFailed = null;
+      unlockAudio();
       client.init(seed, difficulty, opts);
-      set({ started: true, completedGoals: [], scenario: null, won: false, runStars: 0 });
+      const teach = !loadTutorialDone();
+      set({
+        started: true,
+        completedGoals: [],
+        scenario: null,
+        won: false,
+        runStars: 0,
+        runSeed: seed,
+        tutorialActive: teach,
+        tutorialStep: 0,
+        overlay: teach ? 'density' : 'none',
+        tool: 'select',
+        mode: 'bus',
+      });
     },
     startScenario: (s, seed) => {
-      client.init(seed, s.difficulty, { size: s.size, presetKey: s.cityKey });
-      set({ started: true, completedGoals: [], scenario: s, won: false, runStars: 0 });
+      scorePosted = false;
+      lastFailed = null;
+      unlockAudio();
+      client.init(seed, s.difficulty, { size: s.size, presetKey: s.cityKey, rules: s.rules });
+      // Tutorial is free-play only — eras already teach under a clock and locked kit.
+      const startMode = s.rules.startingModes[0] ?? 'bus';
+      set({
+        started: true,
+        completedGoals: [],
+        scenario: s,
+        won: false,
+        runStars: 0,
+        runSeed: seed,
+        tutorialActive: false,
+        tutorialStep: 0,
+        overlay: 'none',
+        tool: 'select',
+        mode: startMode,
+      });
     },
     pushToast: (message, tone) => {
       const id = toastId++;

@@ -52,6 +52,15 @@ export function stationCost(mode: TransitMode): number {
 }
 
 export function applyCommand(state: GameState, cmd: Command): CommandResult {
+  if (state.failed) return { ok: false, error: 'This run is over' };
+  const result = applyCommandInner(state, cmd);
+  if (result.ok) {
+    state.commandLog.push({ tick: state.tick, cmd });
+  }
+  return result;
+}
+
+function applyCommandInner(state: GameState, cmd: Command): CommandResult {
   switch (cmd.kind) {
     case 'buildStation': {
       if (!state.unlockedModes.includes(cmd.mode)) return { ok: false, error: `${MODES[cmd.mode].label} not yet unlocked` };
@@ -279,6 +288,7 @@ export function applyCommand(state: GameState, cmd: Command): CommandResult {
       return { ok: true };
     }
   }
+  return { ok: false, error: 'Unknown command' };
 }
 
 /** Rebuild the vehicle pool for a route, spacing vehicles evenly. */

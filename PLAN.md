@@ -105,65 +105,32 @@ alone.
 
 ---
 
-## Phase 3 — A reason to keep playing (progression & campaign) 🟡
+## Phase 3 — A reason to keep playing (progression & campaign) ✅
 
-> Shipped the campaign spine, **mirroring the ahd-sim repo's setup**: a flat
-> `content/scenarioRegistry.ts` (metadata rows + `sc()` helper) separate from
-> scenario content, and `content/campaign.ts` (the stars analogue of ahd-sim's
-> `packs.ts`) driving picker locks. Six cities in three tiers, unlocked by
-> stars earned in play (1/2/3 per city). Remaining: tech/era unlocks as reward,
-> real failure conditions, difficulty rebalance.
-
-**Goal:** turn Free Play + loose scenarios into a shaped arc with stakes.
-
-- **Campaign.** Sequence the six real cities by difficulty with distinct
-  constraints (Boston harbor/Charles, LA sprawl, NYC density, Chicago grid).
-  Star ratings per city from goal completion; stars gate the next city.
-  Persist campaign progress (localStorage now, account later).
-- **Tech/era unlocks as reward.** Today modes unlock purely by population
-  (`checkUnlocks`). Layer an explicit progression: start bus-only, earn
-  tram → metro → commuter through goals/score so the toolset opens up.
-- **Real failure + tension.** Bankruptcy exists (`BANKRUPTCY_GRACE_DAYS`); add
-  approval-floor failure, tighter starting budgets on hard, and scenario time
-  limits. Lose conditions make "one more day" mean something.
-- **Difficulty rebalance** across easy/normal/hard (`BASE_DAILY_SUBSIDY`,
-  starting cash, unlock thresholds).
-
-**Files:** `app/scenarios.ts`, `app/goals.ts`, new `app/campaign.ts`,
-`core/newGame.ts`, `sim.ts` (checkUnlocks/failure), `App.tsx` (campaign screen).
+> Shipped: campaign spine with **historical era scenarios** (NYC 1904, Boston
+> 1897, Chicago 1892, Cleveland 1955, Atlanta 1979, LA 1963), star-gated tiers,
+> **goal-based mode unlocks** (ridership / share / coverage, with population
+> fallback), **real failure** (bankruptcy + approval floor + time limit), and
+> difficulty-tuned starting cash/subsidy per era.
 
 ---
 
-## Phase 4 — Game-feel & onboarding (polish that sells it) ⬜
+## Phase 4 — Game-feel & onboarding (polish that sells it) ✅
 
-**Goal:** answer "graphics still feel half-assed" fully, and stop first-run drop.
-
-- **Guided first city / tutorial.** 3–4 interactive steps to first ridership.
-  Highest-ROI polish — most players quit in the first 90 seconds.
-- **Motion & audio.** Smooth camera easing, vehicle interpolation, subtle SFX +
-  ambient bed, walker-vs-rider dot styling (dim on foot, bright on the line).
-- **Visual system finish.** Fully realize "Elegant Transit Canvas": line
-  rendering, station glyphs by mode/level, label typography, day/night tint.
-- **Shareable output.** One-click "my network" screenshot/card export.
-
-**Files:** new `app/tutorial.tsx`, `render/*`, `app/audio.ts`, `render/palette.ts`.
+> Shipped: guided tutorial, typography, corridor bundling, day/night wash,
+> Share card, and **procedural audio** (ambient bed + build/win/fail cues,
+> Mute in the HUD).
 
 ---
 
-## Phase 5 — Retention & meta (live-game layer) ⬜
+## Phase 5 — Retention & meta (live-game layer) ✅
 
-**Goal:** leverage the self-hosted backend (`server/index.mjs`) for a live game.
+> Shipped: command log, **full server-side OSM replay verification**
+> (`server/lib/verify.mjs` via `npm run build:verify`), daily challenge,
+> replay-envelope scores, and **cloud-synced campaign stars** (`/api/campaign`).
 
-- **Replay-validated leaderboards.** Saves are deterministic (command log +
-  `stateHash`). Validate submitted scores server-side by re-simulating the
-  command stream and checking the hash — anti-cheat most indie sims can't do.
-- **Daily/weekly challenge.** One seeded city + goal + shared board. The
-  retention engine.
-- **Profiles & cross-device progression.** Extend the accounts system to persist
-  campaign stars and best scores.
-
-**Files:** `server/index.mjs`, `core/save.ts` (headless replay entry),
-`app/api.ts`, `app/App.tsx` (challenge screen).
+**Files:** `server/index.mjs`, `server/lib/verify.mjs`, `src/server/verifyEntry.ts`,
+`core/replay.ts`, `app/api.ts`, `app/daily.ts`, `app/audio.ts`, `content/campaign.ts`.
 
 ---
 

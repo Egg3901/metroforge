@@ -3,13 +3,16 @@ import { generateCity } from './city/generator';
 import { MAP_SIZE_METERS, presetByKey, type MapSize } from './city/presets';
 import type { OsmCityData } from './city/osmCity';
 import { Rng } from './rng';
-import type { Difficulty, GameState } from './types';
+import type { ScenarioRules } from './scenarioRules';
+import type { Difficulty, GameState, TransitMode } from './types';
 
 export interface NewGameOptions {
   size?: MapSize | undefined;
   presetKey?: string | undefined;
   /** preloaded real-city dataset (loaded async by the host before calling) */
   osm?: OsmCityData | undefined;
+  /** era / challenge constraints applied at kickoff */
+  rules?: ScenarioRules | undefined;
 }
 
 export function newGame(seed: number, difficulty: Difficulty, options: NewGameOptions = {}): GameState {
@@ -25,7 +28,9 @@ export function newGame(seed: number, difficulty: Difficulty, options: NewGameOp
     population += d.population;
     jobs += d.jobs;
   }
-  return {
+  const rules = options.rules;
+  const startingModes: TransitMode[] = rules?.startingModes?.length ? [...rules.startingModes] : ['bus'];
+  const state: GameState = {
     seed,
     tick: 0,
     rngState: rng.state(),
@@ -44,7 +49,7 @@ export function newGame(seed: number, difficulty: Difficulty, options: NewGameOp
     vehicles: [],
     flows: [],
     budget: {
-      cash: STARTING_CASH[difficulty],
+      cash: rules?.startingCash ?? STARTING_CASH[difficulty],
       loanBalance: 0,
       loanRate: 0.08,
       lastDay: { fares: 0, subsidy: 0, operations: 0, maintenance: 0, interest: 0 },
@@ -60,8 +65,13 @@ export function newGame(seed: number, difficulty: Difficulty, options: NewGameOp
     },
     nextId: 1,
     demandDirty: true,
-    unlockedModes: ['bus'],
+    unlockedModes: startingModes,
     activeEvents: [],
     nextEventDay: 8, // no events in the first week
+    commandLog: [],
+    lowApprovalDays: 0,
+    failed: null,
   };
+  if (rules) state.scenarioRules = rules;
+  return state;
 }
