@@ -29,6 +29,8 @@ All notable changes to MetroForge are documented here. Format follows
 - Vehicle motion advances stop-to-stop (no station overshoot); occupancy varies
   by the segment a vehicle is on.
 - Campaign/score sync failures surface as warn toasts.
+- **Four more OSM cities.** Philadelphia, San Francisco, Washington, and Seattle
+  with historical eras (1907 / 1912 / 1976 / 2009).
 - **Historical era scenarios.** NYC 1904, Boston 1897, Chicago 1892, Cleveland
   1955, Atlanta 1979, LA 1963 — each with locked starting modes, era budgets,
   day limits, and approval floors.
