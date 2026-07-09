@@ -26,6 +26,10 @@ export interface RenderPrefs {
   dayNight: boolean;
   vignette: boolean;
   mapLabels: boolean;
+  /** Cap animated agents / flow motes for weaker GPUs */
+  reduceMotion: boolean;
+  /** Multiplier on pan + zoom feel */
+  cameraSensitivity: number;
 }
 
 export interface GhostState {
@@ -34,6 +38,10 @@ export interface GhostState {
   valid: boolean;
   cost: number | null;
   mode: TransitMode;
+  /** Soft ring around the nearest valid station while placing track/route. */
+  hoverStation?: { x: number; y: number; valid: boolean } | null;
+  /** Temporary numbered markers for route stops being built. */
+  routeMarkers?: { x: number; y: number; n: number }[];
 }
 
 export interface RendererCallbacks {
@@ -88,6 +96,8 @@ export class GameRenderer {
     dayNight: true,
     vignette: true,
     mapLabels: true,
+    reduceMotion: false,
+    cameraSensitivity: 1,
   };
 
   // camera
@@ -123,10 +133,10 @@ export class GameRenderer {
       preserveDrawingBuffer: true,
     });
     host.appendChild(this.app.canvas);
+    // Depth order (top-down): ground → roads/tracks/routes → vehicles/agents →
+    // stations/labels → buildings overlay (close zoom) → ghost preview on top.
     this.world.addChild(
       this.localRoadsG,
-      this.buildingsG,
-      this.isoBuildingsG,
       this.roadsG,
       this.trafficRoadsG,
       this.tracksG,
@@ -135,11 +145,13 @@ export class GameRenderer {
       this.demandG,
       this.hotspotsG,
       this.flowG,
+      this.vehiclesG,
+      this.agentsG,
       this.mapLabels,
       this.stationsG,
       this.labels,
-      this.vehiclesG,
-      this.agentsG,
+      this.buildingsG,
+      this.isoBuildingsG,
       this.ghostG,
     );
     this.app.stage.addChild(this.world);
@@ -247,8 +259,55 @@ export class GameRenderer {
     this.camEasing = true;
     if (scale !== undefined) {
       this.zoomFocus = { x: this.app.screen.width / 2, y: this.app.screen.height / 2 };
-      this.targetScale = Math.max(0.03, Math.min(2.5, scale));
+      this.targetScale = this.clampZoom(scale);
     }
+  }
+
+  /** Current zoom scale (world units → screen). */
+  getZoom(): number {
+    return this.scale;
+  }
+
+  /** Min zoom so the full city roughly fits the viewport. */
+  private minZoom(): number {
+    const city = this.city;
+    if (!city) return 0.03;
+    const fit = Math.min(this.app.screen.width, this.app.screen.height) / city.worldSize;
+    return Math.max(0.02, fit * 0.55);
+  }
+
+  private clampZoom(s: number): number {
+    return Math.max(this.minZoom(), Math.min(2.5, s));
+  }
+
+  /** Recenter on the city origin (or station centroid if any). */
+  recenter(): void {
+    const ui = this.ui;
+    if (ui && ui.stations.length > 0) {
+      let sx = 0;
+      let sy = 0;
+      for (const st of ui.stations) {
+        sx += st.x;
+        sy += st.y;
+      }
+      this.focusOn(sx / ui.stations.length, sy / ui.stations.length);
+    } else {
+      this.focusOn(0, 0);
+    }
+  }
+
+  /** Fit the whole city in view. */
+  zoomToFit(): void {
+    const city = this.city;
+    if (!city) return;
+    const fit = Math.min(this.app.screen.width, this.app.screen.height) / city.worldSize * 0.92;
+    this.focusOn(0, 0, fit);
+  }
+
+  /** Keyboard / HUD zoom about the screen center. */
+  zoomBy(factor: number): void {
+    this.zoomFocus = { x: this.app.screen.width / 2, y: this.app.screen.height / 2 };
+    this.targetScale = this.clampZoom(this.targetScale * factor);
   }
 
   /** Snapshot the WebGL canvas for the shareable network card. */
@@ -524,7 +583,7 @@ export class GameRenderer {
         const midY = (a!.y + b!.y) / 2 - rect.top;
         if (pinchDist > 0 && distNow > 0) {
           const before = this.screenToWorld(midX, midY);
-          this.scale = Math.max(0.03, Math.min(2.5, this.scale * (distNow / pinchDist)));
+          this.scale = this.clampZoom(this.scale * (distNow / pinchDist));
           this.targetScale = this.scale; // pinch is direct; keep the easer in sync
           const after = this.screenToWorld(midX, midY);
           this.cx += before.x - after.x;
@@ -537,8 +596,8 @@ export class GameRenderer {
       const w = this.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       this.callbacks.onHoverWorld?.(w.x, w.y);
       if (this.dragging) {
-        this.cx -= (e.clientX - this.lastPointer.x) / this.scale;
-        this.cy -= (e.clientY - this.lastPointer.y) / this.sy;
+        this.cx -= ((e.clientX - this.lastPointer.x) / this.scale) * this.prefs.cameraSensitivity;
+        this.cy -= ((e.clientY - this.lastPointer.y) / this.sy) * this.prefs.cameraSensitivity;
         clampCam();
       }
       this.lastPointer = { x: e.clientX, y: e.clientY };
@@ -566,8 +625,9 @@ export class GameRenderer {
         const rect = canvas.getBoundingClientRect();
         // set a zoom target about the cursor; tick() eases toward it
         this.zoomFocus = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-        const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
-        this.targetScale = Math.max(0.03, Math.min(2.5, this.targetScale * factor));
+        const sens = this.prefs.cameraSensitivity;
+        const factor = e.deltaY < 0 ? 1 + 0.18 * sens : 1 / (1 + 0.18 * sens);
+        this.targetScale = this.clampZoom(this.targetScale * factor);
       },
       { passive: false },
     );
@@ -1422,7 +1482,7 @@ export class GameRenderer {
     // animated passenger-flow motes streaming along the lines (density ∝ ridership)
     const fg = this.flowG;
     fg.clear();
-    if (this.scale > 0.05 && this.routePaths.length) {
+    if (this.scale > 0.05 && this.routePaths.length && !this.prefs.reduceMotion) {
       const speed = 240; // world units / real second — constant regardless of sim speed
       const tsec = this.clock / 1000;
       const moteR = Math.max(2.5, 5 / Math.sqrt(this.scale)) * 0.55;
@@ -1438,11 +1498,12 @@ export class GameRenderer {
       }
     }
 
-    // vehicles
+    // vehicles — mode-distinct sprites + occupancy cue
     const vg = this.vehiclesG;
     vg.clear();
     const f = this.frame;
     if (f && this.ui) {
+      const routeByColorIdx = this.ui.routes;
       for (let i = 0; i < f.vehicleCount; i++) {
         const x = f.vehicles[i * 6 + 1] as number;
         const y = f.vehicles[i * 6 + 2] as number;
@@ -1450,29 +1511,17 @@ export class GameRenderer {
         const occ = f.vehicles[i * 6 + 4] as number;
         const colorIdx = f.vehicles[i * 6 + 5] as number;
         const color = f.routeColorOf[colorIdx] ?? '#ffffff';
-        const len = 60;
-        const wid = 26;
-        const cos = Math.cos(heading);
-        const sin = Math.sin(heading);
-        vg.poly([
-          x + cos * len - sin * wid, y + sin * len + cos * wid,
-          x + cos * len + sin * wid, y + sin * len - cos * wid,
-          x - cos * len + sin * wid, y - sin * len - cos * wid,
-          x - cos * len - sin * wid, y - sin * len + cos * wid,
-        ]);
-        vg.fill({ color });
-        if (occ > 0.9) {
-          vg.circle(x, y, 40);
-          vg.stroke({ width: 8, color: 0xf87171, alpha: 0.9 });
-        }
+        const mode = routeByColorIdx[colorIdx]?.mode ?? 'bus';
+        this.drawVehicle(vg, mode, heading, occ, color, x, y);
       }
 
       // passengers: small elegant motes — riders warm, walkers dim
       const ag = this.agentsG;
       ag.clear();
-      if (this.scale > 0.07) {
+      if (this.scale > 0.07 && !this.prefs.reduceMotion) {
         const r = Math.max(4, 7 / Math.sqrt(this.scale));
-        for (let i = 0; i < f.agentCount; i++) {
+        const cap = Math.min(f.agentCount, 400);
+        for (let i = 0; i < cap; i++) {
           const x = f.agents[i * 3] as number;
           const y = f.agents[i * 3 + 1] as number;
           const phase = f.agents[i * 3 + 2] as number;
@@ -1486,6 +1535,21 @@ export class GameRenderer {
     const gg = this.ghostG;
     gg.clear();
     const ghost = this.ghost;
+    if (ghost.hoverStation) {
+      const hs = ghost.hoverStation;
+      gg.circle(hs.x, hs.y, 90);
+      gg.stroke({ width: 14, color: hs.valid ? 0x69db7c : 0xf87171, alpha: 0.55 });
+      gg.circle(hs.x, hs.y, 55);
+      gg.stroke({ width: 6, color: hs.valid ? 0xffffff : 0xf87171, alpha: 0.35 });
+    }
+    if (ghost.routeMarkers && ghost.routeMarkers.length > 0) {
+      for (const m of ghost.routeMarkers) {
+        gg.circle(m.x, m.y, 48);
+        gg.fill({ color: 0xfff3bf, alpha: 0.85 });
+        gg.circle(m.x, m.y, 48);
+        gg.stroke({ width: 6, color: 0x0b0d10, alpha: 0.7 });
+      }
+    }
     if (ghost.kind === 'station' && ghost.points.length === 1) {
       const p = ghost.points[0] as { x: number; y: number };
       gg.circle(p.x, p.y, 60);
@@ -1499,6 +1563,114 @@ export class GameRenderer {
         gg.lineTo((ghost.points[i] as { x: number }).x, (ghost.points[i] as { y: number }).y);
       }
       gg.stroke({ width: 16, color: ghost.valid ? 0xfff3bf : 0xf87171, alpha: 0.7 });
+    }
+  }
+
+  /**
+   * Mode-distinct vehicle sprites (few polys). Bus = boxy front, tram = trolley
+   * silhouette, metro = rounded capsule, rail = longer trainset.
+   */
+  private drawVehicle(
+    g: Graphics,
+    mode: TransitMode,
+    heading: number,
+    occ: number,
+    color: number | string,
+    x: number,
+    y: number,
+  ): void {
+    const cos = Math.cos(heading);
+    const sin = Math.sin(heading);
+    const px = (lx: number, ly: number): [number, number] => [x + cos * lx - sin * ly, y + sin * lx + cos * ly];
+    const fillA = Math.min(1, 0.55 + Math.min(1, occ) * 0.45);
+
+    if (mode === 'bus') {
+      const len = 52;
+      const wid = 24;
+      const nose = 18;
+      g.poly([
+        ...px(len + nose, 0),
+        ...px(len, wid),
+        ...px(-len, wid),
+        ...px(-len, -wid),
+        ...px(len, -wid),
+      ]);
+      g.fill({ color, alpha: fillA });
+      // windshield stripe
+      g.poly([...px(len + nose * 0.35, wid * 0.55), ...px(len + nose, 0), ...px(len + nose * 0.35, -wid * 0.55)]);
+      g.fill({ color: 0xffffff, alpha: 0.35 });
+    } else if (mode === 'tram') {
+      const len = 58;
+      const wid = 22;
+      g.poly([
+        ...px(len, wid * 0.85),
+        ...px(len * 0.55, wid),
+        ...px(-len, wid),
+        ...px(-len, -wid),
+        ...px(len * 0.55, -wid),
+        ...px(len, -wid * 0.85),
+      ]);
+      g.fill({ color, alpha: fillA });
+      // pantograph / trolley pole
+      g.moveTo(...px(8, 0));
+      g.lineTo(...px(8, -wid * 1.7));
+      g.lineTo(...px(-6, -wid * 2.1));
+      g.stroke({ width: 7, color: 0xe8eef4, alpha: 0.85, cap: 'round' });
+    } else if (mode === 'metro') {
+      const len = 70;
+      const wid = 24;
+      // rounded capsule via octagon
+      g.poly([
+        ...px(len * 0.7, wid),
+        ...px(len, wid * 0.45),
+        ...px(len, -wid * 0.45),
+        ...px(len * 0.7, -wid),
+        ...px(-len * 0.7, -wid),
+        ...px(-len, -wid * 0.45),
+        ...px(-len, wid * 0.45),
+        ...px(-len * 0.7, wid),
+      ]);
+      g.fill({ color, alpha: fillA });
+      g.poly([...px(len * 0.55, wid * 0.35), ...px(len * 0.9, 0), ...px(len * 0.55, -wid * 0.35)]);
+      g.fill({ color: 0xffffff, alpha: 0.28 });
+    } else {
+      // rail — longer multi-car silhouette
+      const len = 95;
+      const wid = 22;
+      g.poly([
+        ...px(len, wid * 0.7),
+        ...px(len * 0.75, wid),
+        ...px(-len, wid),
+        ...px(-len, -wid),
+        ...px(len * 0.75, -wid),
+        ...px(len, -wid * 0.7),
+      ]);
+      g.fill({ color, alpha: fillA });
+      // car articulation notches
+      for (const gap of [-28, 8]) {
+        g.moveTo(...px(gap, -wid));
+        g.lineTo(...px(gap, wid));
+        g.stroke({ width: 5, color: 0x0b0d10, alpha: 0.45 });
+      }
+    }
+
+    // overcrowding ring
+    if (occ > 0.9) {
+      g.circle(x, y, mode === 'rail' ? 55 : 42);
+      g.stroke({ width: 8, color: 0xf87171, alpha: 0.9 });
+    }
+
+    // capacity bar when zoomed in
+    if (this.scale > 0.12) {
+      const barW = mode === 'rail' ? 90 : mode === 'metro' ? 70 : 55;
+      const barH = 10;
+      const [bx, by] = px(0, -(mode === 'tram' ? 48 : 38));
+      g.rect(bx - barW / 2, by - barH / 2, barW, barH);
+      g.fill({ color: 0x0b0d10, alpha: 0.65 });
+      const fillW = barW * Math.min(1, occ);
+      const barColor = occ >= 1 ? 0xff453a : occ >= 0.8 ? 0xff9f0a : 0x30d158;
+      g.rect(bx - barW / 2, by - barH / 2, fillW, barH);
+      g.fill({ color: barColor, alpha: 0.95 });
     }
   }
 }

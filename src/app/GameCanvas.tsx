@@ -27,6 +27,8 @@ export function GameCanvas(): React.JSX.Element {
         dayNight: s.dayNight,
         vignette: s.vignette,
         mapLabels: s.mapLabels,
+        reduceMotion: s.reduceMotion,
+        cameraSensitivity: s.cameraSensitivity,
       });
     };
 
@@ -68,48 +70,102 @@ export function GameCanvas(): React.JSX.Element {
       }
     });
 
-    const nearestStation = (x: number, y: number, maxDist: number, mode?: string): number | null => {
+    const nearestStationInfo = (
+      x: number,
+      y: number,
+      maxDist: number,
+      mode?: string,
+    ): { id: number; x: number; y: number; dist: number } | null => {
       const ui = useStore.getState().ui;
       if (!ui) return null;
-      let best: number | null = null;
-      let bestD = maxDist;
+      let best: { id: number; x: number; y: number; dist: number } | null = null;
       for (const s of ui.stations) {
         if (mode && s.mode !== mode) continue;
         const d = Math.hypot(s.x - x, s.y - y);
-        if (d < bestD) {
-          bestD = d;
-          best = s.id;
-        }
+        if (!best || d < best.dist) best = { id: s.id, x: s.x, y: s.y, dist: d };
       }
+      if (!best || best.dist > maxDist) return null;
       return best;
     };
+
+    const nearestStation = (x: number, y: number, maxDist: number, mode?: string): number | null =>
+      nearestStationInfo(x, y, maxDist, mode)?.id ?? null;
 
     const updateGhost = (): void => {
       const st = useStore.getState();
       const r = rendererRef.current;
       if (!r) return;
       const h = hoverRef.current;
+      const SNAP = 260;
       if (st.tool === 'station') {
         r.setGhost({ kind: 'station', points: [h], valid: true, cost: null, mode: st.mode });
-      } else if (st.tool === 'track' && st.trackFrom !== null) {
+      } else if (st.tool === 'track') {
         const ui = st.ui;
-        const from = ui?.stations.find((s) => s.id === st.trackFrom);
-        if (from) {
-          const pts = [{ x: from.x, y: from.y }, ...st.trackWaypoints, h];
-          r.setGhost({ kind: 'track', points: pts, valid: true, cost: st.trackCostEstimate, mode: st.mode });
-          // fire-and-forget cost estimate (throttled by pointer event rate)
-          void st.client.trackCost(st.mode, st.mode === 'metro' ? 'tunnel' : 'surface', pts).then((cost) => {
-            useStore.setState({ trackCostEstimate: cost });
+        const hover = nearestStationInfo(h.x, h.y, SNAP * 1.4, st.mode);
+        const hoverStation = hover
+          ? { x: hover.x, y: hover.y, valid: hover.dist <= SNAP }
+          : null;
+        if (st.trackFrom !== null) {
+          const from = ui?.stations.find((s) => s.id === st.trackFrom);
+          if (from) {
+            const pts = [{ x: from.x, y: from.y }, ...st.trackWaypoints, h];
+            r.setGhost({
+              kind: 'track',
+              points: pts,
+              valid: true,
+              cost: st.trackCostEstimate,
+              mode: st.mode,
+              hoverStation,
+            });
+            void st.client.trackCost(st.mode, st.mode === 'metro' ? 'tunnel' : 'surface', pts).then((cost) => {
+              useStore.setState({ trackCostEstimate: cost });
+            });
+          }
+        } else {
+          r.setGhost({
+            kind: 'track',
+            points: [],
+            valid: !!hoverStation?.valid,
+            cost: null,
+            mode: st.mode,
+            hoverStation,
           });
         }
-      } else if (st.tool === 'route' && st.routeStops.length > 0) {
+      } else if (st.tool === 'route') {
         const ui = st.ui;
-        if (ui) {
+        const hover = nearestStationInfo(h.x, h.y, SNAP * 1.4, st.mode);
+        const hoverStation = hover
+          ? { x: hover.x, y: hover.y, valid: hover.dist <= SNAP }
+          : null;
+        const markers =
+          ui?.stations
+            .filter((s) => st.routeStops.includes(s.id))
+            .map((s) => ({ x: s.x, y: s.y, n: st.routeStops.indexOf(s.id) + 1 }))
+            .sort((a, b) => a.n - b.n) ?? [];
+        if (st.routeStops.length > 0 && ui) {
           const pts = st.routeStops
             .map((id) => ui.stations.find((s) => s.id === id))
             .filter((s): s is NonNullable<typeof s> => !!s)
             .map((s) => ({ x: s.x, y: s.y }));
-          r.setGhost({ kind: 'route', points: [...pts, h], valid: true, cost: null, mode: st.mode });
+          r.setGhost({
+            kind: 'route',
+            points: [...pts, h],
+            valid: true,
+            cost: null,
+            mode: st.mode,
+            hoverStation,
+            routeMarkers: markers,
+          });
+        } else {
+          r.setGhost({
+            kind: 'route',
+            points: [],
+            valid: !!hoverStation?.valid,
+            cost: null,
+            mode: st.mode,
+            hoverStation,
+            routeMarkers: markers,
+          });
         }
       } else {
         r.setGhost({ kind: 'none', points: [], valid: true, cost: null, mode: st.mode });
@@ -202,6 +258,7 @@ export function GameCanvas(): React.JSX.Element {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return;
       const st = useStore.getState();
+      const r = rendererRef.current;
       const modeKeys: Record<string, 'bus' | 'tram' | 'metro' | 'rail'> = { '1': 'bus', '2': 'tram', '3': 'metro', '4': 'rail' };
       const mk = modeKeys[e.key];
       if (mk) st.setMode(mk);
@@ -213,10 +270,30 @@ export function GameCanvas(): React.JSX.Element {
         st.cancelPending();
         st.setTool('select');
         st.select(null, null);
+        st.setShortcutsOpen(false);
       } else if (e.key === 'Enter') void finishRoute();
       else if (e.key === ' ') {
         e.preventDefault();
         st.setSpeed(st.speed === 0 ? 1 : 0);
+      } else if (e.key === '=' || e.key === '+' || e.key === 'Add') {
+        e.preventDefault();
+        r?.zoomBy(1.2);
+      } else if (e.key === '-' || e.key === '_' || e.key === 'Subtract') {
+        e.preventDefault();
+        r?.zoomBy(1 / 1.2);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        r?.recenter();
+      } else if (e.key === '0' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        r?.zoomToFit();
+      } else if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        st.setShortcutsOpen(!st.shortcutsOpen);
+      } else if (e.key === 'f' || e.key === 'F') {
+        st.setPanel(st.panel === 'budget' ? 'none' : 'budget');
+      } else if (e.key === ',' || e.key === 'Comma') {
+        st.setPanel(st.panel === 'settings' ? 'none' : 'settings');
       }
       updateGhost();
     };

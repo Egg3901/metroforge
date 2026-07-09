@@ -5,9 +5,10 @@ import { SimClient } from '@host/client';
 import { GOALS, completedGoalIds } from './goals';
 import type { Scenario } from './scenarios';
 import { applyCloudStars, loadStars, persistStars, recordStars, starsForProgress, type StarMap } from '@content/campaign';
-import { fetchCampaign, loadAccount, pushCampaign, submitScore, type Account } from './api';
+import { enqueueScore, fetchCampaign, flushScoreQueue, loadAccount, pushCampaign, submitScore, type Account } from './api';
 import { sfxFail, sfxGood, unlockAudio } from './audio';
 import { loadTutorialDone, markTutorialDone, TUTORIAL_STEPS } from './tutorial';
+import { getSettings } from './settings';
 
 export type Tool = 'select' | 'station' | 'track' | 'route' | 'bulldoze';
 export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic' | 'unserved';
@@ -16,6 +17,11 @@ export interface Toast {
   id: number;
   message: string;
   tone: 'info' | 'warn' | 'good';
+}
+
+export interface GoalBanner {
+  id: number;
+  label: string;
 }
 
 interface AppState {
@@ -32,6 +38,8 @@ interface AppState {
   selectedStationId: number | null;
   selectedRouteId: number | null;
   toasts: Toast[];
+  goalBanners: GoalBanner[];
+  shortcutsOpen: boolean;
   panel: 'none' | 'budget' | 'station' | 'route' | 'goals' | 'routes' | 'settings';
   overlay: OverlayMode;
   completedGoals: string[];
@@ -58,6 +66,9 @@ interface AppState {
   startScenario: (s: Scenario, seed: number) => void;
   pushToast: (message: string, tone: Toast['tone']) => void;
   dismissToast: (id: number) => void;
+  pushGoalBanner: (label: string) => void;
+  dismissGoalBanner: (id: number) => void;
+  setShortcutsOpen: (open: boolean) => void;
   cancelPending: () => void;
   select: (kind: 'station' | 'route' | null, id: number | null) => void;
   setPanel: (p: AppState['panel']) => void;
@@ -65,22 +76,29 @@ interface AppState {
 }
 
 let toastId = 1;
+let bannerId = 1;
 let scorePosted = false;
 let lastFailed: string | null = null;
 
 async function postVerifiedScore(sc: Scenario, ui: UiState, client: SimClient, token: string, pushToast: AppState['pushToast']): Promise<void> {
   try {
     const replay = await client.requestReplay();
-    const { verified } = await submitScore(token, {
+    const sub = {
       scenario: sc.scenarioId,
       value: sc.score(ui),
       city: sc.city,
       replay,
-    });
-    pushToast(verified ? 'Score verified on the server' : 'Score posted (pending verify)', 'good');
-    sfxGood();
+    };
+    try {
+      const { verified } = await submitScore(token, sub);
+      pushToast(verified ? 'Score verified on the server' : 'Score posted (pending verify)', 'good');
+      sfxGood();
+    } catch {
+      enqueueScore(sub);
+      pushToast('Score saved offline — will retry when connected', 'warn');
+    }
   } catch {
-    pushToast('Could not post score', 'warn');
+    pushToast('Could not capture replay for score', 'warn');
   }
 }
 
@@ -95,6 +113,7 @@ export const useStore = create<AppState>((set, get) => {
         if (!prev.includes(id)) {
           const g = GOALS.find((x) => x.id === id);
           if (g) {
+            get().pushGoalBanner(g.label);
             get().pushToast(`Goal complete — ${g.label}`, 'good');
             sfxGood();
           }
@@ -162,6 +181,8 @@ export const useStore = create<AppState>((set, get) => {
     selectedStationId: null,
     selectedRouteId: null,
     toasts: [],
+    goalBanners: [],
+    shortcutsOpen: false,
     panel: 'none',
     overlay: 'none',
     completedGoals: [],
@@ -173,7 +194,12 @@ export const useStore = create<AppState>((set, get) => {
     account: loadAccount(),
     setAccount: (account) => {
       set({ account });
-      if (account) void get().syncCampaign();
+      if (account) {
+        void get().syncCampaign();
+        void flushScoreQueue(account.token).then((n) => {
+          if (n > 0) get().pushToast(`Posted ${n} queued score${n === 1 ? '' : 's'}`, 'good');
+        });
+      }
     },
     syncCampaign: async () => {
       const acct = get().account;
@@ -185,8 +211,10 @@ export const useStore = create<AppState>((set, get) => {
         const final = applyCloudStars(pushed);
         persistStars(final);
         set({ stars: final });
+        const n = await flushScoreQueue(acct.token);
+        if (n > 0) get().pushToast(`Posted ${n} queued score${n === 1 ? '' : 's'}`, 'good');
       } catch {
-        /* offline / unsigned — local stars still work */
+        get().pushToast('Could not sync campaign stars — will retry when online', 'warn');
       }
     },
     tutorialActive: false,
@@ -222,6 +250,7 @@ export const useStore = create<AppState>((set, get) => {
       unlockAudio();
       client.init(seed, difficulty, opts);
       const teach = !loadTutorialDone();
+      const pause = getSettings().pauseOnStart;
       set({
         started: true,
         completedGoals: [],
@@ -234,7 +263,11 @@ export const useStore = create<AppState>((set, get) => {
         overlay: teach ? 'density' : 'none',
         tool: 'select',
         mode: 'bus',
+        speed: pause ? 0 : 1,
+        goalBanners: [],
+        shortcutsOpen: false,
       });
+      if (pause) client.setSpeed(0);
     },
     startScenario: (s, seed) => {
       scorePosted = false;
@@ -243,6 +276,7 @@ export const useStore = create<AppState>((set, get) => {
       client.init(seed, s.difficulty, { size: s.size, presetKey: s.cityKey, rules: s.rules });
       // Tutorial is free-play only — eras already teach under a clock and locked kit.
       const startMode = s.rules.startingModes[0] ?? 'bus';
+      const pause = getSettings().pauseOnStart;
       set({
         started: true,
         completedGoals: [],
@@ -255,7 +289,11 @@ export const useStore = create<AppState>((set, get) => {
         overlay: 'none',
         tool: 'select',
         mode: startMode,
+        speed: pause ? 0 : 1,
+        goalBanners: [],
+        shortcutsOpen: false,
       });
+      if (pause) client.setSpeed(0);
     },
     pushToast: (message, tone) => {
       const id = toastId++;
@@ -263,6 +301,13 @@ export const useStore = create<AppState>((set, get) => {
       setTimeout(() => get().dismissToast(id), 6000);
     },
     dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+    pushGoalBanner: (label) => {
+      const id = bannerId++;
+      set((s) => ({ goalBanners: [...s.goalBanners.slice(-2), { id, label }] }));
+      setTimeout(() => get().dismissGoalBanner(id), 5000);
+    },
+    dismissGoalBanner: (id) => set((s) => ({ goalBanners: s.goalBanners.filter((b) => b.id !== id) })),
+    setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
     cancelPending: () => set({ trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
     select: (kind, id) =>
       set({

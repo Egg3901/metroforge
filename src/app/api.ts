@@ -100,3 +100,48 @@ export async function pushCampaign(token: string, stars: StarMap): Promise<StarM
   const data = await post('/campaign', { stars }, token);
   return (data.stars && typeof data.stars === 'object' ? data.stars : stars) as StarMap;
 }
+
+const SCORE_QUEUE_KEY = 'metroforge:score-queue';
+
+function loadScoreQueue(): ScoreSubmission[] {
+  try {
+    const raw = localStorage.getItem(SCORE_QUEUE_KEY);
+    return raw ? (JSON.parse(raw) as ScoreSubmission[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveScoreQueue(q: ScoreSubmission[]): void {
+  try {
+    if (q.length === 0) localStorage.removeItem(SCORE_QUEUE_KEY);
+    else localStorage.setItem(SCORE_QUEUE_KEY, JSON.stringify(q.slice(-8)));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Queue a score for later when the network/API is unavailable. */
+export function enqueueScore(sub: ScoreSubmission): void {
+  const q = loadScoreQueue();
+  q.push(sub);
+  saveScoreQueue(q);
+}
+
+/** Flush any offline score submissions. Returns how many succeeded. */
+export async function flushScoreQueue(token: string): Promise<number> {
+  const q = loadScoreQueue();
+  if (q.length === 0) return 0;
+  const remaining: ScoreSubmission[] = [];
+  let ok = 0;
+  for (const sub of q) {
+    try {
+      await submitScore(token, sub);
+      ok++;
+    } catch {
+      remaining.push(sub);
+    }
+  }
+  saveScoreQueue(remaining);
+  return ok;
+}

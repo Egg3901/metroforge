@@ -65,6 +65,8 @@ export function deserialize(json: string): GameState {
     })),
   };
   if (s.scenarioRules) restored.scenarioRules = s.scenarioRules;
+  // migrate older saves missing rolling cash-flow history
+  if (!restored.budget.netHistory) restored.budget.netHistory = [];
   return restored;
 }
 

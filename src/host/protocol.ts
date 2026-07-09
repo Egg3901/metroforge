@@ -51,6 +51,8 @@ export interface UiState {
   cash: number;
   loanBalance: number;
   lastDay: GameState['budget']['lastDay'];
+  /** rolling net/day (oldest → newest), up to 7 entries */
+  netHistory: number[];
   population: number;
   approval: number;
   transitShare: number;

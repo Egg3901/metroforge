@@ -118,9 +118,32 @@ export function GoalsPanel(): React.JSX.Element | null {
   }
 
   const doneCount = completed.length;
+  const firstSteps = [
+    { id: 's', label: 'Place a station on dense road', done: (ui.stations.length ?? 0) >= 1 },
+    { id: 't', label: 'Connect stations with track', done: (ui.tracks.length ?? 0) >= 1 },
+    { id: 'r', label: 'Create a route and launch vehicles', done: (ui.routes.length ?? 0) >= 1 },
+    { id: 'p', label: 'Carry your first riders', done: ui.dailyTransitTrips >= 100 },
+  ];
+  const nextStep = firstSteps.find((s) => !s.done);
   return (
     <PanelShell title={`Objectives · ${doneCount}/${GOALS.length}`}>
       <div className="space-y-2.5">
+        <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-2.5">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-amber-400/90 font-semibold mb-1.5">First steps</div>
+          <div className="space-y-1">
+            {firstSteps.map((s) => (
+              <div key={s.id} className={`flex items-center gap-2 text-xs ${s.done ? 'text-emerald-400/90' : s.id === nextStep?.id ? 'text-zinc-100' : 'text-zinc-500'}`}>
+                <span className={`grid place-items-center w-3.5 h-3.5 rounded-full text-[9px] ${s.done ? 'bg-emerald-500 text-zinc-950' : 'border border-zinc-600'}`}>
+                  {s.done ? '✓' : ''}
+                </span>
+                {s.label}
+              </div>
+            ))}
+          </div>
+          {nextStep && (
+            <div className="mt-2 text-[11px] text-amber-200/80">Next: {nextStep.label}</div>
+          )}
+        </div>
         {GOALS.map((g) => {
           const p = Math.max(0, Math.min(1, g.progress(ui)));
           const done = p >= 1;
@@ -221,6 +244,11 @@ export function RoutesPanel(): React.JSX.Element | null {
   const totRiders = routes.reduce((a, r) => a + r.dailyRidership, 0);
   const totRevenue = routes.reduce((a, r) => a + r.dailyRevenue, 0);
   const totKm = routes.reduce((a, r) => a + r.lengthMeters / 1000, 0);
+  const routeProfit = (r: (typeof routes)[0]): number => {
+    const cfg = MODES[r.mode];
+    const ops = r.vehicleCount * (cfg.opsPerVehiclePerDay + cfg.maintPerVehiclePerDay);
+    return r.dailyRevenue - ops;
+  };
   return (
     <PanelShell title={`Lines · ${routes.length}`}>
       <div className="space-y-3">
@@ -234,25 +262,30 @@ export function RoutesPanel(): React.JSX.Element | null {
         </div>
         {routes.length === 0 && <div className="text-zinc-600 text-xs py-3 text-center">No lines yet. Place stations, lay track, then create a route.</div>}
         <div className="space-y-1">
-          {routes.map((r) => (
-            <button key={r.id} onClick={() => select('route', r.id)}
-              className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-zinc-800/70 text-left">
-              <span className="w-3 h-3 rounded-full shrink-0" style={{ background: r.color }} />
-              <div className="min-w-0 flex-1">
-                <div className="text-sm text-zinc-100 truncate">{r.name}</div>
-                <div className="text-[11px] text-zinc-500">{MODES[r.mode].label} · {r.stationIds.length} stops · {(r.lengthMeters / 1000).toFixed(1)} km</div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="text-xs font-mono text-zinc-200">{Math.round(r.dailyRidership).toLocaleString()}</div>
-                <div className="text-[11px] font-mono text-emerald-400/90">{fmt(r.dailyRevenue)}</div>
-              </div>
-              <span
-                className="w-1.5 h-8 rounded-full shrink-0"
-                title={`${crowdInfo(r.crowding).label} · ${Math.round(r.crowding * 100)}%`}
-                style={{ background: crowdInfo(r.crowding).color }}
-              />
-            </button>
-          ))}
+          {routes.map((r) => {
+            const profit = routeProfit(r);
+            return (
+              <button key={r.id} onClick={() => select('route', r.id)}
+                className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-zinc-800/70 text-left">
+                <span className="w-3 h-3 rounded-full shrink-0" style={{ background: r.color }} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-zinc-100 truncate">{r.name}</div>
+                  <div className="text-[11px] text-zinc-500">{MODES[r.mode].label} · {r.stationIds.length} stops · {(r.lengthMeters / 1000).toFixed(1)} km</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-xs font-mono text-zinc-200">{Math.round(r.dailyRidership).toLocaleString()}</div>
+                  <div className={`text-[11px] font-mono ${profit >= 0 ? 'text-emerald-400/90' : 'text-red-400/90'}`}>
+                    {profit >= 0 ? '+' : ''}{fmt(profit)}/d
+                  </div>
+                </div>
+                <span
+                  className="w-1.5 h-8 rounded-full shrink-0"
+                  title={`${crowdInfo(r.crowding).label} · ${Math.round(r.crowding * 100)}%`}
+                  style={{ background: crowdInfo(r.crowding).color }}
+                />
+              </button>
+            );
+          })}
         </div>
       </div>
     </PanelShell>
@@ -265,9 +298,17 @@ export function RoutePanel(): React.JSX.Element | null {
   const client = useStore((s) => s.client);
   const pushToast = useStore((s) => s.pushToast);
   const route = ui?.routes.find((r) => r.id === id);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [nameDraft, setNameDraft] = useState(route?.name ?? '');
+  useEffect(() => {
+    setNameDraft(route?.name ?? '');
+    setConfirmDelete(false);
+  }, [route?.id, route?.name]);
   if (!ui || !route) return null;
   const cfg = MODES[route.mode];
-  const edit = (patch: Partial<{ headwaySeconds: number; fare: number; vehicleCount: number }>): void => {
+  const ops = route.vehicleCount * (cfg.opsPerVehiclePerDay + cfg.maintPerVehiclePerDay);
+  const profit = route.dailyRevenue - ops;
+  const edit = (patch: Partial<{ headwaySeconds: number; fare: number; vehicleCount: number; name: string }>): void => {
     void client.command({ kind: 'editRoute', routeId: route.id, ...patch }).then((r) => {
       if (!r.ok && r.error) pushToast(r.error, 'warn');
     });
@@ -275,12 +316,29 @@ export function RoutePanel(): React.JSX.Element | null {
   return (
     <PanelShell title={route.name}>
       <div className="space-y-4 text-zinc-300">
+        <label className="block text-xs">
+          <span className="text-zinc-500">Line name</span>
+          <input
+            type="text"
+            value={nameDraft}
+            maxLength={40}
+            className="mt-1 w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2.5 py-1.5 text-sm text-zinc-100 focus:outline-none focus:border-amber-500/60"
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={() => {
+              const n = nameDraft.trim();
+              if (n && n !== route.name) edit({ name: n });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            }}
+          />
+        </label>
         <div className="flex gap-2 items-center">
           <span className="w-4 h-4 rounded-full" style={{ background: route.color }} />
           <span className="px-2 py-0.5 rounded bg-zinc-800 text-xs">{cfg.label}</span>
           <span className="text-xs text-zinc-500">{(route.lengthMeters / 1000).toFixed(1)} km · {route.stationIds.length} stops</span>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="grid grid-cols-3 gap-2 text-xs">
           <div className="bg-zinc-800/60 rounded p-2">
             <div className="text-zinc-500">Ridership</div>
             <div className="text-zinc-100 font-mono">{Math.round(route.dailyRidership).toLocaleString()}/day</div>
@@ -288,6 +346,12 @@ export function RoutePanel(): React.JSX.Element | null {
           <div className="bg-zinc-800/60 rounded p-2">
             <div className="text-zinc-500">Fare revenue</div>
             <div className="text-emerald-300 font-mono">{fmt(route.dailyRevenue)}/day</div>
+          </div>
+          <div className="bg-zinc-800/60 rounded p-2">
+            <div className="text-zinc-500">Ops P/L</div>
+            <div className={`font-mono ${profit >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+              {profit >= 0 ? '+' : ''}{fmt(profit)}/day
+            </div>
           </div>
         </div>
         {(() => {
@@ -342,7 +406,6 @@ export function RoutePanel(): React.JSX.Element | null {
               <div className="text-xs text-zinc-500 uppercase mb-1">Load by segment</div>
               <div className="space-y-1">
                 {route.segmentLoads.map((load, i) => {
-                  // segment crowding = peak-hour link load vs the line's capacity
                   const cr = route.capacity > 0 ? (load * 0.14) / route.capacity : 0;
                   const ci = crowdInfo(cr);
                   return (
@@ -361,17 +424,79 @@ export function RoutePanel(): React.JSX.Element | null {
             </div>
           );
         })()}
-        <button
-          className="w-full py-1.5 rounded bg-red-900/50 hover:bg-red-900 text-red-200 text-xs"
-          onClick={() => {
-            void client.command({ kind: 'deleteRoute', routeId: route.id });
-            useStore.getState().select(null, null);
-          }}
-        >
-          Delete route (40% vehicle resale)
-        </button>
+        {!confirmDelete ? (
+          <button
+            className="w-full py-1.5 rounded bg-red-900/50 hover:bg-red-900 text-red-200 text-xs"
+            onClick={() => setConfirmDelete(true)}
+          >
+            Delete route…
+          </button>
+        ) : (
+          <div className="rounded-lg border border-red-800/60 bg-red-950/40 p-2.5 space-y-2">
+            <div className="text-xs text-red-200">
+              Delete {route.name}?
+              {route.vehicleCount > 0
+                ? ` ${route.vehicleCount} vehicle${route.vehicleCount === 1 ? '' : 's'} will be sold back at 40%.`
+                : ''}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                className="py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300"
+                onClick={() => setConfirmDelete(false)}
+              >
+                Keep
+              </button>
+              <button
+                className="py-1.5 rounded bg-red-700 hover:bg-red-600 text-xs text-white font-semibold"
+                onClick={() => {
+                  void client.command({ kind: 'deleteRoute', routeId: route.id });
+                  useStore.getState().select(null, null);
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </PanelShell>
+  );
+}
+
+function CashFlowSpark({ history }: { history: number[] }): React.JSX.Element | null {
+  if (history.length < 2) return null;
+  const w = 260;
+  const h = 48;
+  const min = Math.min(0, ...history);
+  const max = Math.max(0, ...history);
+  const span = Math.max(1, max - min);
+  const pts = history
+    .map((v, i) => {
+      const x = (i / (history.length - 1)) * w;
+      const y = h - ((v - min) / span) * (h - 4) - 2;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+  const zeroY = h - ((0 - min) / span) * (h - 4) - 2;
+  const last = history[history.length - 1] ?? 0;
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
+      <div className="flex justify-between text-[10px] uppercase tracking-wide text-zinc-500 mb-1">
+        <span>Net / day · 7 days</span>
+        <span className={last >= 0 ? 'text-emerald-400' : 'text-red-400'}>{fmt(last)}</span>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-12" preserveAspectRatio="none">
+        <line x1="0" y1={zeroY} x2={w} y2={zeroY} stroke="#3f3f46" strokeWidth="1" strokeDasharray="3 3" />
+        <polyline
+          fill="none"
+          stroke={last >= 0 ? '#34d399' : '#f87171'}
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          points={pts}
+        />
+      </svg>
+    </div>
   );
 }
 
@@ -390,6 +515,20 @@ export function BudgetPanel(): React.JSX.Element | null {
   const net = rows.reduce((a, [, v]) => a + v, 0);
   const costs = d.operations + d.maintenance;
   const recovery = costs > 0 ? d.fares / costs : 0;
+  const history = ui.netHistory ?? [];
+  let runway: string | null = null;
+  if (net < 0 && ui.cash > 0) {
+    const days = Math.floor(ui.cash / -net);
+    runway = days <= 0
+      ? 'Cash runs out today at this burn rate'
+      : days > 365
+        ? `At this burn rate, cash lasts ${Math.floor(days / 30)}+ months`
+        : `At this burn rate, cash lasts ~${days} day${days === 1 ? '' : 's'}`;
+  } else if (net < 0 && ui.cash <= 0) {
+    runway = 'Already in the red — raise fares, cut fleet, or borrow';
+  } else if (net > 0) {
+    runway = 'Network is cash-flow positive if ridership holds';
+  }
   return (
     <PanelShell title="Finances">
       <div className="space-y-3 text-zinc-300">
@@ -407,6 +546,14 @@ export function BudgetPanel(): React.JSX.Element | null {
             <div className={`text-sm font-mono ${recovery >= 1 ? 'text-emerald-300' : 'text-zinc-200'}`}>{Math.round(recovery * 100)}%</div>
           </div>
         </div>
+        {runway && (
+          <div className={`text-[11px] rounded-md px-2.5 py-2 border ${
+            net < 0 ? 'border-amber-500/40 bg-amber-950/30 text-amber-200/90' : 'border-emerald-700/40 bg-emerald-950/20 text-emerald-300/90'
+          }`}>
+            {runway}
+          </div>
+        )}
+        <CashFlowSpark history={history} />
         {ui.insights.length > 0 && (
           <div className="space-y-1">
             <div className="text-[10px] uppercase tracking-wide text-zinc-500">What is happening</div>
@@ -565,6 +712,30 @@ export function SettingsPanel(): React.JSX.Element {
         </SettingRow>
         <SettingRow label="Map labels">
           <Toggle on={s.mapLabels} onChange={(mapLabels) => apply({ mapLabels })} />
+        </SettingRow>
+
+        <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-500 font-semibold px-0.5 pt-2">Gameplay</div>
+        <SettingRow label="Pause on start" hint="New cities begin paused so you can survey the map.">
+          <Toggle on={s.pauseOnStart} onChange={(pauseOnStart) => apply({ pauseOnStart })} />
+        </SettingRow>
+        <SettingRow label="Autosave" hint="Periodic saves to this device while you play.">
+          <Toggle on={s.autosave} onChange={(autosave) => apply({ autosave })} />
+        </SettingRow>
+        <SettingRow label="Camera feel" hint="How snappy pan and zoom respond.">
+          <Seg<string>
+            value={s.cameraSensitivity <= 0.7 ? 'slow' : s.cameraSensitivity >= 1.3 ? 'fast' : 'normal'}
+            options={[
+              { id: 'slow', label: 'Gentle' },
+              { id: 'normal', label: 'Normal' },
+              { id: 'fast', label: 'Snappy' },
+            ]}
+            onChange={(id) =>
+              apply({ cameraSensitivity: id === 'slow' ? 0.55 : id === 'fast' ? 1.45 : 1 })
+            }
+          />
+        </SettingRow>
+        <SettingRow label="Reduce agents" hint="Fewer passenger motes and flow dots — easier on weak GPUs.">
+          <Toggle on={s.reduceMotion} onChange={(reduceMotion) => apply({ reduceMotion })} />
         </SettingRow>
 
         <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-500 font-semibold px-0.5 pt-2">Audio</div>

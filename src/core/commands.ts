@@ -192,7 +192,7 @@ function applyCommandInner(state: GameState, cmd: Command): CommandResult {
       if (!route) return { ok: false, error: 'Route not found' };
       const cfg = MODES[route.mode];
       if (cmd.fare !== undefined) route.fare = Math.min(10, Math.max(0, cmd.fare));
-      if (cmd.name !== undefined) route.name = cmd.name;
+      if (cmd.name !== undefined) route.name = cmd.name.slice(0, 40);
       if (cmd.color !== undefined) route.color = cmd.color;
       if (cmd.vehicleCount !== undefined) {
         const target = Math.max(0, Math.min(40, Math.round(cmd.vehicleCount)));

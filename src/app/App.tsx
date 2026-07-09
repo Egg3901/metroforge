@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { GameCanvas } from './GameCanvas';
-import { HUD } from './HUD';
+import { GoalBanners, HUD, ShortcutsOverlay } from './HUD';
 import { Toolbar } from './Toolbar';
 import { BudgetPanel, GoalsPanel, RoutePanel, RoutesPanel, SettingsPanel, StationPanel } from './Panels';
 import { CITY_PRESETS } from '@core/city/presets';
@@ -14,6 +14,7 @@ import { authenticate, fetchLeaderboard, signOut, type LeaderEntry } from './api
 import { useStore } from './store';
 import { TutorialCard } from './TutorialCard';
 import { clearTutorialDone, loadTutorialDone } from './tutorial';
+import { getSettings } from './settings';
 
 const randomSeed = (): number => Math.floor(Math.random() * 1e9);
 const seedFrom = (s: string): number => {
@@ -470,6 +471,17 @@ export function App(): React.JSX.Element {
   const started = useStore((s) => s.started);
   const panel = useStore((s) => s.panel);
   const won = useStore((s) => s.won);
+  const client = useStore((s) => s.client);
+
+  // Periodic autosave when the preference is on
+  useEffect(() => {
+    if (!started) return;
+    const id = window.setInterval(() => {
+      if (getSettings().autosave) client.requestSave();
+    }, 90_000);
+    return () => window.clearInterval(id);
+  }, [started, client]);
+
   return (
     <div className="fixed inset-0 bg-zinc-950">
       <GameCanvas />
@@ -483,7 +495,9 @@ export function App(): React.JSX.Element {
       {started && panel === 'routes' && <RoutesPanel />}
       {(started || panel === 'settings') && panel === 'settings' && <SettingsPanel />}
       <Toasts />
+      {started && <GoalBanners />}
       {started && <TutorialCard />}
+      {started && <ShortcutsOverlay />}
       {started && won && <WinOverlay />}
       {started && <FailOverlay />}
       {!started && <NewGameScreen />}

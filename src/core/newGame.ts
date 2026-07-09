@@ -53,6 +53,7 @@ export function newGame(seed: number, difficulty: Difficulty, options: NewGameOp
       loanBalance: 0,
       loanRate: 0.08,
       lastDay: { fares: 0, subsidy: 0, operations: 0, maintenance: 0, interest: 0 },
+      netHistory: [],
     },
     stats: {
       population,

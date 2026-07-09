@@ -119,29 +119,92 @@ function moveVehicles(state: GameState): void {
     v.pathLength = path.length;
     if (v.dwellRemaining > 0) {
       v.dwellRemaining -= 1;
+      // still refresh occupancy while dwelling so bars stay live
+      v.occupancy = occupancyAt(route, v.along, path.length);
       continue;
     }
     const cfg = MODES[route.mode];
-    const prev = v.along;
-    v.along = (v.along + cfg.speed) % path.length;
-    // dwell when passing a station stop position
-    for (const sid of route.stationIds) {
-      const s = state.stations.find((st) => st.id === sid);
-      if (!s) continue;
-      const stopDist = nearestAlong(path, s);
-      for (const d of stopDist) {
-        const crossed = prev < v.along ? d > prev && d <= v.along : d > prev || d <= v.along;
-        if (crossed) {
-          v.dwellRemaining = cfg.dwellSeconds;
-          break;
-        }
+    const stops = allStopDistances(path, route, state);
+    // Advance segment-by-segment toward the next stop so we never overshoot
+    // a dwell point on long ticks / high speeds.
+    let remaining = cfg.speed;
+    let guard = 0;
+    while (remaining > 1e-6 && guard++ < 8) {
+      const nextStop = nextStopAhead(stops, v.along, path.length);
+      const gap =
+        nextStop === null
+          ? remaining
+          : nextStop >= v.along
+            ? nextStop - v.along
+            : path.length - v.along + nextStop;
+      if (nextStop !== null && gap <= remaining + 1e-6) {
+        v.along = nextStop % path.length;
+        v.dwellRemaining = cfg.dwellSeconds;
+        remaining = 0;
+        break;
       }
-      if (v.dwellRemaining > 0) break;
+      const step = Math.min(remaining, gap);
+      v.along = (v.along + step) % path.length;
+      remaining -= step;
     }
-    // occupancy tracks the route's crowding (peak load / capacity), so a packed
-    // line's vehicles read full and an over-served line's read empty
-    v.occupancy = route.vehicleCount > 0 ? Math.min(1.5, route.crowding || 0) : 0;
+    v.occupancy = occupancyAt(route, v.along, path.length);
   }
+}
+
+/** Per-vehicle load from the segment the vehicle is currently on (falls back to route crowding). */
+function occupancyAt(
+  route: { crowding: number; segmentLoads: number[]; capacity: number; stationIds: number[]; vehicleCount: number },
+  along: number,
+  pathLen: number,
+): number {
+  if (route.vehicleCount <= 0) return 0;
+  const segs = route.segmentLoads;
+  const n = Math.max(1, route.stationIds.length - 1);
+  if (!segs.length || pathLen <= 0 || route.capacity <= 0) {
+    return Math.min(1.5, route.crowding || 0);
+  }
+  // Out-and-back: first half outbound segments, second half reverse.
+  const half = pathLen / 2;
+  let segIdx: number;
+  if (along <= half) {
+    segIdx = Math.min(n - 1, Math.floor((along / half) * n));
+  } else {
+    const t = (along - half) / half;
+    segIdx = Math.min(n - 1, n - 1 - Math.floor(t * n));
+  }
+  const load = segs[segIdx] ?? 0;
+  // segmentLoads are daily link trips; convert roughly to peak load / capacity
+  const peak = load * 0.14;
+  return Math.min(1.5, peak / route.capacity);
+}
+
+function allStopDistances(
+  path: { points: { x: number; y: number }[]; cumulative: number[]; length: number },
+  route: { stationIds: number[] },
+  state: GameState,
+): number[] {
+  const out: number[] = [];
+  for (const sid of route.stationIds) {
+    const s = state.stations.find((st) => st.id === sid);
+    if (!s) continue;
+    for (const d of nearestAlong(path, s)) out.push(d);
+  }
+  out.sort((a, b) => a - b);
+  // de-dupe near-identical stops (out-and-back joints)
+  const uniq: number[] = [];
+  for (const d of out) {
+    if (uniq.length === 0 || Math.abs(d - (uniq[uniq.length - 1] as number)) > 5) uniq.push(d);
+  }
+  return uniq;
+}
+
+function nextStopAhead(stops: number[], along: number, pathLen: number): number | null {
+  if (stops.length === 0 || pathLen <= 0) return null;
+  for (const d of stops) {
+    if (d > along + 0.5) return d;
+  }
+  // wrap to first stop on the loop
+  return stops[0] ?? null;
 }
 
 /** Distances along an out-and-back path where the path passes near a station. */
@@ -249,6 +312,10 @@ function runDailyEconomy(state: GameState, _day: number, events: TickEvents): vo
 
   b.cash += fares + subsidy - operations - maintenance - interest;
   b.lastDay = { fares, subsidy, operations, maintenance, interest };
+  const net = fares + subsidy - operations - maintenance - interest;
+  if (!b.netHistory) b.netHistory = [];
+  b.netHistory.push(net);
+  if (b.netHistory.length > 7) b.netHistory.shift();
 
   if (fares > 0 && fares > operations + maintenance) {
     events.messages.push('Farebox recovery above 100% — the network pays for itself');

@@ -22,6 +22,14 @@ export interface Settings {
   mapLabels: boolean;
   /** Mute procedural audio (mirrors audio.ts) */
   muted: boolean;
+  /** Pause the sim when a new city starts */
+  pauseOnStart: boolean;
+  /** Ask the worker to autosave periodically */
+  autosave: boolean;
+  /** Camera pan/zoom feel: 0.5 = gentle, 1.5 = snappy */
+  cameraSensitivity: number;
+  /** Cap animated agents/vehicles for weaker GPUs */
+  reduceMotion: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -31,6 +39,10 @@ export const DEFAULT_SETTINGS: Settings = {
   vignette: true,
   mapLabels: true,
   muted: false,
+  pauseOnStart: false,
+  autosave: true,
+  cameraSensitivity: 1,
+  reduceMotion: false,
 };
 
 type Listener = (s: Settings) => void;
@@ -56,6 +68,13 @@ function loadInitial(): Settings {
       vignette: parsed.vignette !== false,
       mapLabels: parsed.mapLabels !== false,
       muted,
+      pauseOnStart: parsed.pauseOnStart === true,
+      autosave: parsed.autosave !== false,
+      cameraSensitivity:
+        typeof parsed.cameraSensitivity === 'number' && parsed.cameraSensitivity > 0
+          ? Math.min(2, Math.max(0.4, parsed.cameraSensitivity))
+          : 1,
+      reduceMotion: parsed.reduceMotion === true,
     };
   } catch {
     return { ...DEFAULT_SETTINGS, muted };
@@ -72,6 +91,10 @@ function persist(s: Settings): void {
         dayNight: s.dayNight,
         vignette: s.vignette,
         mapLabels: s.mapLabels,
+        pauseOnStart: s.pauseOnStart,
+        autosave: s.autosave,
+        cameraSensitivity: s.cameraSensitivity,
+        reduceMotion: s.reduceMotion,
       }),
     );
   } catch {

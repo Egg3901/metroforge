@@ -7,8 +7,28 @@ All notable changes to MetroForge are documented here. Format follows
 ## [Unreleased]
 
 ### Added
-- **Four more OSM cities.** Philadelphia, San Francisco, Washington, and Seattle
-  with historical eras (1907 / 1912 / 1976 / 2009).
+- **Mode-distinct vehicle sprites.** Buses, trams, metros, and railcars each
+  have a readable silhouette; zoomed-in capacity bars show per-vehicle load.
+- **Finances + Settings HUD buttons** (desktop and mobile), with Budget/Settings
+  icons; pause badge when speed is 0; `?` keyboard overlay.
+- **Camera keys.** `+`/`−` zoom, `Home` recenter, `0` fit city; zoom % readout;
+  min zoom clamped to city size; camera sensitivity setting.
+- **Build-mode station hover rings** and numbered route-stop markers.
+- **First-steps checklist** in the Objectives panel (station → track → route →
+  riders).
+- **Budget runway projection** and 7-day net cash-flow sparkline; per-route
+  operating P/L in the Lines list and route panel.
+- **Route rename** input and **delete confirmation** when removing a line.
+- **Goal completion banners** (in addition to toasts).
+- **Settings:** pause-on-start, autosave, camera feel, reduce agents.
+- **Offline score queue** with retry toast when leaderboard submit fails.
+
+### Changed
+- Render depth: vehicles/agents draw under stations and buildings so they no
+  longer float over rooftops.
+- Vehicle motion advances stop-to-stop (no station overshoot); occupancy varies
+  by the segment a vehicle is on.
+- Campaign/score sync failures surface as warn toasts.
 - **Historical era scenarios.** NYC 1904, Boston 1897, Chicago 1892, Cleveland
   1955, Atlanta 1979, LA 1963 — each with locked starting modes, era budgets,
   day limits, and approval floors.

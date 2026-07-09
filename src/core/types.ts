@@ -131,18 +131,22 @@ export interface FlowResult {
 
 // ── Economy ─────────────────────────────────────────────────────────────────
 
+export interface DayLedger {
+  fares: number;
+  subsidy: number;
+  operations: number;
+  maintenance: number;
+  interest: number;
+}
+
 export interface Budget {
   cash: number;
   loanBalance: number;
   loanRate: number; // annual
   /** yesterday's totals for UI */
-  lastDay: {
-    fares: number;
-    subsidy: number;
-    operations: number;
-    maintenance: number;
-    interest: number;
-  };
+  lastDay: DayLedger;
+  /** rolling net/day history (oldest → newest), capped at 7 */
+  netHistory: number[];
 }
 
 export interface CityStats {
