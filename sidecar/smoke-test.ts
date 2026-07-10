@@ -440,6 +440,42 @@ async function sendCommand(client: Client, cmd: unknown): Promise<CommandResult>
   return (msg.env.p as { result: CommandResult }).result;
 }
 
+/** Save/load hydration (v0.4): a v2-wrapped save must round-trip the preset
+ *  key so loadSave re-hydrates OSM masks + building vectors - without it a
+ *  loaded NYC renders as a procedural city (native issue: saves-menu wave). */
+async function runSaveLoadHydration(): Promise<void> {
+  const label = 'save-load';
+  const sidecar = await SidecarHandle.spawn();
+  const client = new Client(sidecar.port);
+  try {
+    await client.waitForType('hello');
+    client.send('hello', { clientProtocolVersion: 1 });
+    client.send('init', { seed: SEED, difficulty: DIFFICULTY, presetKey: PRESET_KEY });
+    await client.waitFor((m) => m.kind === 'binary' && m.msgType === 2, 15_000, 'fields');
+
+    client.send('requestSave', {});
+    const savedEnv = await client.waitForType('saved', 15_000);
+    const savedJson = (savedEnv.p as { json: string }).json;
+    const wrapper = JSON.parse(savedJson) as { mfSaveV?: number; presetKey?: string | null };
+    if (wrapper.mfSaveV !== 2) fail(`[${label}] save wrapper version expected 2, got ${String(wrapper.mfSaveV)}`);
+    if (wrapper.presetKey !== PRESET_KEY) fail(`[${label}] save wrapper presetKey expected ${PRESET_KEY}, got ${String(wrapper.presetKey)}`);
+
+    client.maskCount = 0;
+    client.buildingsBuf = undefined;
+    client.send('loadSave', { json: savedJson });
+    const readyEnv = await client.waitForType('ready', 15_000);
+    const staticCity = (readyEnv.p as { staticCity: Record<string, unknown> }).staticCity;
+    if (staticCity['hasBuildingMask'] !== true) fail(`[${label}] loaded ready lost hasBuildingMask (hydration failed)`);
+    await client.waitFor((m) => m.kind === 'binary' && m.msgType === 2, 15_000, 'fields after load');
+    if (client.maskCount < 1) fail(`[${label}] no staticMask frames after load`);
+    if (!client.buildingsBuf) fail(`[${label}] no StaticBuildings frame after load (building vectors lost)`);
+    console.log(`${label}: hydration OK (masks=${client.maskCount}, buildings frame present)`);
+  } finally {
+    client.close();
+    await sidecar.kill();
+  }
+}
+
 async function main(): Promise<void> {
   console.log(`mf-wire smoke test — sidecar: ${SIDECAR_BIN ?? '(interpreted) bun run index.ts'}`);
 
@@ -469,6 +505,8 @@ async function main(): Promise<void> {
   if (!Buffer.from(runA.buildingsBuf).equals(Buffer.from(runB.buildingsBuf))) {
     fail(`StaticBuildings frame bytes differ between run A (${runA.buildingsBuf.byteLength}B) and run B (${runB.buildingsBuf.byteLength}B)`);
   }
+
+  await runSaveLoadHydration();
 
   console.log('PASS: vehicles move, both runs agree on stateHash at identical tick, and StaticBuildings is byte-identical.');
 }

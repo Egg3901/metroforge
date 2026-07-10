@@ -24,6 +24,7 @@ import { EVENT_DEFS } from '@core/events';
 import { pointAlong } from '@core/geometry';
 import { newGame } from '@core/newGame';
 import { deserialize, serialize, stateHash } from '@core/save';
+import { decodeB64Mask } from '@core/city/osmCity';
 import type { ScenarioRules } from '@core/scenarioRules';
 import { simTick } from '@core/sim';
 import { getRoutePath } from '@core/transit/routePath';
@@ -99,7 +100,17 @@ export class SimHost {
         this.handleLoadSave(env.p as { json: string });
         break;
       case 'requestSave':
-        if (this.state) this.send(jsonMessage('saved', { json: serialize(this.state) }));
+        if (this.state) {
+          // v2 save wrapper: serialize() strips the OSM masks/labels and no
+          // building vectors persist, so the preset key rides along to let
+          // loadSave re-hydrate them from the baked city data.
+          const wrapped = JSON.stringify({
+            mfSaveV: 2,
+            presetKey: this.initMeta.presetKey ?? null,
+            sim: JSON.parse(serialize(this.state)) as unknown,
+          });
+          this.send(jsonMessage('saved', { json: wrapped }));
+        }
         break;
       case 'setSpeed':
         this.speed = (env.p as { speed: number }).speed;
@@ -144,12 +155,35 @@ export class SimHost {
 
   private handleLoadSave(p: { json: string }): void {
     try {
-      const state = deserialize(p.json);
+      let simJson = p.json;
+      let presetKey: string | undefined;
+      try {
+        const parsed = JSON.parse(p.json) as { mfSaveV?: number; presetKey?: string | null; sim?: unknown };
+        if (parsed !== null && typeof parsed === 'object' && parsed.mfSaveV === 2 && parsed.sim !== undefined) {
+          simJson = JSON.stringify(parsed.sim);
+          presetKey = parsed.presetKey ?? undefined;
+        }
+      } catch {
+        // legacy bare-state save; fall through with the raw json
+      }
+      const state = deserialize(simJson);
+      // serialize() strips OSM masks/labels for size and building vectors
+      // never persist; without re-hydration a loaded NYC renders as a
+      // procedural city (no real footprints, no water/park masks). The v2
+      // wrapper's preset key restores them from the baked city data.
+      const osm = resolveCity(presetKey);
+      if (osm) {
+        const n = osm.maskRes * osm.maskRes;
+        const packed = osm.maskPacked === true;
+        state.osmWaterMask = decodeB64Mask(osm.waterMask, n, packed);
+        state.osmParkMask = osm.parkMask ? decodeB64Mask(osm.parkMask, n, packed) : undefined;
+        state.osmBuildingMask = osm.buildingMask ? decodeB64Mask(osm.buildingMask, n, packed) : undefined;
+        state.osmMaskRes = osm.maskRes;
+        state.osmLabels = osm.labels;
+      }
       this.state = state;
-      // no presetKey travels with a save (host/protocol.ts `loadSave` is
-      // `{json}` only) — clear rather than risk streaming a stale city's
-      // building vectors; the frame is optional so having none is fine.
-      this.buildings = undefined;
+      this.buildings = resolveBuildings(presetKey);
+      if (presetKey !== undefined) this.initMeta.presetKey = presetKey;
       this.bankrupt = state.failed === 'bankrupt';
       this.fieldsVersion++;
       this.sendStatic(state);
