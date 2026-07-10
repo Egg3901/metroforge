@@ -141,6 +141,128 @@ function assembleRings(ways: LL[][]): LL[][] {
   return rings;
 }
 
+/** Outer rings of building ways/relations WITH the tags that carry height info
+ *  (a bare `classifyRings` throws tags away, which is fine for the raster mask
+ *  but not for the vector export below). Inner (hole) rings are intentionally
+ *  skipped for v1 — see buildBuildingsExport. */
+function classifyBuildingRingsTagged(els: OsmEl[]): { ring: LL[]; tags: Record<string, string> }[] {
+  const outers: { ring: LL[]; tags: Record<string, string> }[] = [];
+  for (const e of els) {
+    if (e.type === 'way' && e.geometry && e.geometry.length >= 3) {
+      outers.push({ ring: e.geometry, tags: e.tags ?? {} });
+    } else if (e.type === 'relation' && e.members) {
+      const tags = e.tags ?? {};
+      const ow: LL[][] = [];
+      for (const m of e.members) {
+        if (m.type !== 'way' || !m.geometry || m.geometry.length < 2) continue;
+        if (m.role !== 'inner') ow.push(m.geometry);
+      }
+      for (const r of assembleRings(ow)) outers.push({ ring: r, tags });
+    }
+  }
+  return outers;
+}
+
+/** Parse a building height in meters from OSM tags, priority `height` (meters,
+ *  ignoring unit suffixes like " m") > `building:height` > `building:levels`
+ *  (× 3.2 m/level). Returns 0 (unknown) if none parse. */
+function buildingHeightMeters(tags: Record<string, string>): number {
+  const leadingFloat = (s: string | undefined): number | undefined => {
+    if (s === undefined) return undefined;
+    const m = /-?\d+(\.\d+)?/.exec(s.trim());
+    if (!m) return undefined;
+    const v = Number(m[0]);
+    return Number.isFinite(v) ? v : undefined;
+  };
+  const h = leadingFloat(tags.height);
+  if (h !== undefined && h > 0) return h;
+  const bh = leadingFloat(tags['building:height']);
+  if (bh !== undefined && bh > 0) return bh;
+  const lv = leadingFloat(tags['building:levels']);
+  if (lv !== undefined && lv > 0) return lv * 3.2;
+  return 0;
+}
+
+/** Shoelace signed area, computed directly on the exported (x, y-down)
+ *  coordinates without any axis flip: Σ(x_i·y_{i+1} - x_{i+1}·y_i) / 2. We
+ *  define "counter-clockwise" as POSITIVE by this formula, applied verbatim
+ *  to the stored axes (x right, y down) — i.e. the same shoelace convention
+ *  used for a normal x-right/y-up plane, just applied to whatever axes we
+ *  actually stored. Because y is down here, a ring wound this way appears
+ *  clockwise if you mentally flip to y-up/north-up viewing; that's expected
+ *  and consumers should use this same formula (not a "visual" CCW check) to
+ *  stay consistent. */
+function signedArea2D(pts: [number, number][]): number {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x0, y0] = pts[i]!;
+    const [x1, y1] = pts[(i + 1) % pts.length]!;
+    a += x0 * y1 - x1 * y0;
+  }
+  return a / 2;
+}
+
+interface BuildingRecord {
+  h: number; // height in decimeters, 0 = unknown
+  v: number[]; // flat [x0,y0,x1,y1,...] integer half-meters (world meters * 2, rounded)
+}
+
+/** One outer ring -> one exported building footprint, or null if it should be
+ *  dropped (degenerate after simplification, or too small). `P` is the same
+ *  world-space projection used for roads/water (already ~1 world unit = 1 m,
+ *  y down, north up, origin-centered), so the 1.2 m / 2.5 m tolerances below
+ *  are literal meters in that space. */
+function processBuildingRing(ringLL: LL[], tags: Record<string, string>, P: (ll: LL) => [number, number]): BuildingRecord | null {
+  let ring = ringLL;
+  // OSM closed ways repeat the first point as the last; drop the duplicate so
+  // rings are stored open (implicit closing edge), matching road polylines.
+  if (ring.length > 1) {
+    const first = ring[0]!, last = ring[ring.length - 1]!;
+    if (first.lat === last.lat && first.lon === last.lon) ring = ring.slice(0, -1);
+  }
+  if (ring.length < 3) return null;
+  const pts = ring.map(P);
+
+  let simp = simplify(pts, 1.2);
+  if (simp.length > 64) simp = simplify(pts, 2.5);
+  let tol = 2.5;
+  while (simp.length > 64) {
+    tol *= 2;
+    simp = simplify(pts, tol);
+  }
+  if (simp.length < 3) return null;
+
+  let area = signedArea2D(simp);
+  if (Math.abs(area) < 15) return null; // < 15 m^2 after simplification
+  if (area < 0) simp = simp.slice().reverse(); // normalize to CCW (see signedArea2D doc)
+
+  const v: number[] = new Array(simp.length * 2);
+  for (let i = 0; i < simp.length; i++) {
+    const [x, y] = simp[i]!;
+    v[i * 2] = Math.round(x * 2);
+    v[i * 2 + 1] = Math.round(y * 2);
+  }
+  const meters = buildingHeightMeters(tags);
+  const h = meters > 0 ? Math.round(Math.min(500, Math.max(3, meters)) * 10) : 0;
+  return { h, v };
+}
+
+/** Build and write the per-building vector export (real footprint polygons +
+ *  heights), separate from the coverage-bitmask baked into the main bundle. */
+function buildBuildingsExport(key: string, buildingEls: OsmEl[], P: (ll: LL) => [number, number]): { count: number; withHeight: number; path: string; bytes: number } {
+  const tagged = classifyBuildingRingsTagged(buildingEls);
+  const buildings: BuildingRecord[] = [];
+  for (const { ring, tags } of tagged) {
+    const rec = processBuildingRing(ring, tags, P);
+    if (rec) buildings.push(rec);
+  }
+  const bundle = { version: 1, buildings };
+  const path = `src/data/cities/${key}.buildings.json`;
+  const json = JSON.stringify(bundle);
+  writeFileSync(path, json);
+  return { count: buildings.length, withHeight: buildings.filter((b) => b.h > 0).length, path, bytes: json.length };
+}
+
 /** Outer + inner (hole) rings, so multipolygon water with land holes is correct. */
 function classifyRings(els: OsmEl[]): { outers: LL[][]; inners: LL[][] } {
   const outers: LL[][] = [];
@@ -327,6 +449,16 @@ function build(cfg: CityCfg): void {
   for (const ring of buildingR.outers) fillInto(buildingBits, ring.map(P).flat(), 1);
   for (const ring of buildingR.inners) fillInto(buildingBits, ring.map(P).flat(), 0);
   for (let i = 0; i < buildingBits.length; i++) if (water[i]) buildingBits[i] = 0; // never on water
+
+  // real per-building footprint polygons + heights, written alongside the
+  // rasterized coverage mask above (metroforge-native issue #6 data half)
+  mkdirSync('src/data/cities', { recursive: true });
+  const buildingsExport = buildBuildingsExport(cfg.key, buildingEls, P);
+  const kbB = (buildingsExport.bytes / 1024) | 0;
+  console.log(
+    `${cfg.key}: buildings vectors: ${buildingsExport.count} (${buildingsExport.withHeight} with real height, ` +
+      `${buildingsExport.count - buildingsExport.withHeight} unknown) → ${buildingsExport.path} (${kbB} KB)`,
+  );
 
   // bake final masks
   const bits = new Uint8Array(N * N);

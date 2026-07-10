@@ -21,10 +21,29 @@ import philly from '../src/data/cities/philly.json';
 import seattle from '../src/data/cities/seattle.json';
 import sf from '../src/data/cities/sf.json';
 
+// Per-building footprint vectors (metroforge-native issue #6). Only cities
+// with a generated `<key>.buildings.json` are imported — `bun build --compile`
+// requires static imports (no dynamic `import()` at binary boot, same reason
+// the OsmCityData bundles above are static), so cities without a file simply
+// have no entry here and resolveBuildings returns undefined for them.
+import nycBuildings from '../src/data/cities/nyc.buildings.json';
+
 export interface CityListEntry {
   key: string;
   label: string;
 }
+
+/** One real-OSM building footprint as produced by scripts/build-cities.ts:
+ *  `v` flat [x0,y0,...] outer-ring vertices in integer half-meters, `h`
+ *  height in decimeters (0 = unknown). */
+export interface BuildingsData {
+  version: number;
+  buildings: { h: number; v: number[] }[];
+}
+
+const BUILDINGS_DATA: Partial<Record<string, BuildingsData>> = {
+  nyc: nycBuildings as unknown as BuildingsData,
+};
 
 const CITY_DATA: Record<string, OsmCityData> = {
   nyc: nyc as unknown as OsmCityData,
@@ -48,4 +67,11 @@ export const CITY_LIST: CityListEntry[] = OSM_CITY_KEYS.map((key) => ({ key, lab
 export function resolveCity(key: string | undefined): OsmCityData | undefined {
   if (key === undefined) return undefined;
   return CITY_DATA[key];
+}
+
+/** Building-vector data for `key`, or undefined if that city has none yet
+ *  (v1 ships NYC only — every other city gracefully has no buildings frame). */
+export function resolveBuildings(key: string | undefined): BuildingsData | undefined {
+  if (key === undefined) return undefined;
+  return BUILDINGS_DATA[key];
 }
