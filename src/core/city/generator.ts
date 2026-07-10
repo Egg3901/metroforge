@@ -108,8 +108,52 @@ export function generateCity(seed: number, difficulty: Difficulty, opts: Generat
         const water = maskAt(mask, osm.maskRes, worldSize, p.x, p.y);
         fields.water[i] = water ? 1 : 0;
         if (pmask && !water && maskAt(pmask, osm.maskRes, worldSize, p.x, p.y)) fields.parks[i] = 1;
+      }
+    }
+    // Relief for real cities: the raw fbm amplitude reads as sand dunes on
+    // flat urban islands (Roosevelt Island most visibly). Real relief here
+    // is subtle, and shorelines sit near sea level — so damp the noise
+    // overall AND fade it in with distance from water (multi-source BFS,
+    // 4-neighborhood, distance in cells).
+    const distToWater = new Float32Array(fields.w * fields.h).fill(Infinity);
+    const queue: number[] = [];
+    for (let i = 0; i < fields.w * fields.h; i++) {
+      if (fields.water[i]) {
+        distToWater[i] = 0;
+        queue.push(i);
+      }
+    }
+    for (let qi = 0; qi < queue.length; qi++) {
+      const i = queue[qi] as number;
+      const d = (distToWater[i] as number) + 1;
+      const cx = i % fields.w;
+      const cy = (i / fields.w) | 0;
+      const neighbors = [
+        cx > 0 ? i - 1 : -1,
+        cx < fields.w - 1 ? i + 1 : -1,
+        cy > 0 ? i - fields.w : -1,
+        cy < fields.h - 1 ? i + fields.w : -1,
+      ];
+      for (const ni of neighbors) {
+        if (ni >= 0 && d < (distToWater[ni] as number)) {
+          distToWater[ni] = d;
+          queue.push(ni);
+        }
+      }
+    }
+    const shoreFadeCells = (1200 / fields.cellSize) | 0 || 1; // full relief ~1.2km inland
+    for (let cy = 0; cy < fields.h; cy++) {
+      for (let cx = 0; cx < fields.w; cx++) {
+        const i = cy * fields.w + cx;
+        if (fields.water[i]) {
+          fields.terrain[i] = 0.12;
+          continue;
+        }
+        const p = cellCenter(fields, i);
         const elev = terrainNoise.fbm((p.x / worldSize) * 4 + 10, (p.y / worldSize) * 4 + 10, 4);
-        fields.terrain[i] = water ? 0.12 : clamp(0.35 + elev * 0.4, 0, 1);
+        const t = Math.min(1, (distToWater[i] as number) / shoreFadeCells);
+        const fade = t * t * (3 - 2 * t); // smoothstep
+        fields.terrain[i] = clamp(0.2 + elev * 0.12 * fade, 0, 1);
       }
     }
   } else {
