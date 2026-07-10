@@ -64,17 +64,48 @@ type OsmEl = {
   geometry?: LL[];
   members?: { type: string; role: string; geometry?: LL[] }[];
 };
+/** Overpass replies HTTP 200 with a JSON body that still starts with `{` even
+ *  when the server-side query timed out or errored — the partial/empty result
+ *  carries a top-level `remark` like "runtime error: Query timed out ...". Such
+ *  a response must NEVER be cached as success, or a silently-truncated road/
+ *  water fetch (exactly what leaves square-expanded margins like NJ / outer
+ *  Brooklyn empty) gets frozen into the bundle. */
+function isTruncated(json: string): boolean {
+  try {
+    const remark = (JSON.parse(json) as { remark?: string }).remark;
+    return typeof remark === 'string' && /timed out|runtime error|out of memory/i.test(remark);
+  } catch {
+    return true; // unparseable => treat as truncated/failed
+  }
+}
+
+/** FNV-1a hex fingerprint of the fully-expanded Overpass query. Folded into the
+ *  cache filename so a bbox change (e.g. the square-bbox expansion) — or any
+ *  query edit — invalidates the /tmp cache instead of silently reusing a
+ *  response fetched for the OLD area. The bare `${key}-roads` key did not, which
+ *  is how stale old-bbox roads could survive a re-run. */
+function queryFingerprint(query: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < query.length; i++) {
+    h ^= query.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
 function fetchRaw(query: string, cacheKey: string): OsmEl[] {
-  const cache = `/tmp/osm-${cacheKey}.json`;
+  const cache = `/tmp/osm-${cacheKey}-${queryFingerprint(query)}.json`;
   let json = '';
-  if (existsSync(cache) && readFileSync(cache, 'utf8').trimStart().startsWith('{')) {
-    json = readFileSync(cache, 'utf8');
-  } else {
+  if (existsSync(cache)) {
+    const cached = readFileSync(cache, 'utf8');
+    if (cached.trimStart().startsWith('{') && !isTruncated(cached)) json = cached;
+  }
+  if (!json) {
     // per-key query file: a single shared /tmp/q.overpass gets clobbered when
     // two importer runs overlap, silently caching the WRONG query's response
     const qFile = `/tmp/q-${cacheKey}.overpass`;
     writeFileSync(qFile, query);
-    for (let attempt = 0; attempt < 6 && !json.trimStart().startsWith('{'); attempt++) {
+    for (let attempt = 0; attempt < 6 && (!json.trimStart().startsWith('{') || isTruncated(json)); attempt++) {
       const url = ENDPOINTS[attempt % ENDPOINTS.length]!;
       try {
         json = execFileSync(
@@ -85,12 +116,14 @@ function fetchRaw(query: string, cacheKey: string): OsmEl[] {
       } catch {
         json = '';
       }
-      if (!json.trimStart().startsWith('{')) {
-        console.log(`  ${cacheKey}: retry ${attempt + 1} (endpoint busy), backing off…`);
+      if (!json.trimStart().startsWith('{') || isTruncated(json)) {
+        const why = json.trimStart().startsWith('{') ? 'server-side timeout/partial' : 'endpoint busy';
+        console.log(`  ${cacheKey}: retry ${attempt + 1} (${why}), backing off…`);
+        json = '';
         sleep(6000);
       }
     }
-    if (!json.trimStart().startsWith('{')) throw new Error(`Overpass failed for ${cacheKey}`);
+    if (!json.trimStart().startsWith('{') || isTruncated(json)) throw new Error(`Overpass failed for ${cacheKey}`);
     writeFileSync(cache, json);
   }
   return (JSON.parse(json) as { elements: OsmEl[] }).elements;
@@ -481,7 +514,7 @@ function build(cfg: CityCfg): void {
   const [s, w, n, e] = expandBboxToSquare(cfg.bbox);
   const bb = `${s},${w},${n},${e}`;
   const roads = waysOf(fetchRaw(
-    `[out:json][timeout:90];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|unclassified)(_link)?$"](${bb});out geom;`,
+    `[out:json][timeout:180];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|unclassified)(_link)?$"](${bb});out geom;`,
     `${cfg.key}-roads`,
   ));
   // pre-assembled sea polygons (coastline-derived) from OpenStreetMapData.com,
@@ -496,18 +529,18 @@ function build(cfg: CityCfg): void {
   }
   // water: ways AND relations (lakes, rivers like the Charles, Chicago River)
   const waterEls = fetchRaw(
-    `[out:json][timeout:90];(way["natural"="water"](${bb});way["waterway"="riverbank"](${bb});relation["natural"="water"](${bb});relation["waterway"="riverbank"](${bb}););out geom;`,
+    `[out:json][timeout:180];(way["natural"="water"](${bb});way["waterway"="riverbank"](${bb});relation["natural"="water"](${bb});relation["waterway"="riverbank"](${bb}););out geom;`,
     `${cfg.key}-water2`,
   );
   const waterR = classifyRings(waterEls);
   // named river/bay centerlines for labels (Hudson, East River, Charles, ...)
   const waterwayEls = fetchRaw(
-    `[out:json][timeout:90];(way["waterway"="river"]["name"](${bb});relation["natural"="water"]["name"](${bb}););out geom;`,
+    `[out:json][timeout:180];(way["waterway"="river"]["name"](${bb});relation["natural"="water"]["name"](${bb}););out geom;`,
     `${cfg.key}-waterways`,
   );
   // parks/greens: ways AND relations (Boston Common, Central Park, ...)
   const parkEls = fetchRaw(
-    `[out:json][timeout:90];(way["leisure"~"^(park|garden)$"](${bb});way["natural"="wood"](${bb});relation["leisure"="park"](${bb}););out geom;`,
+    `[out:json][timeout:180];(way["leisure"~"^(park|garden)$"](${bb});way["natural"="wood"](${bb});relation["leisure"="park"](${bb}););out geom;`,
     `${cfg.key}-parks`,
   );
   const parkRings = ringsOf(parkEls);

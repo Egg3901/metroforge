@@ -101,13 +101,36 @@ export function generateCity(seed: number, difficulty: Difficulty, opts: Generat
     osmWaterHi = mask;
     osmParkHi = pmask ?? undefined;
     osmBuildingHi = osm.buildingMask ? decodeB64Mask(osm.buildingMask, n, packed) : undefined;
+    // The coarse 125 m field grid (fields.w×fields.h) is what the native
+    // terrain mesh bilinearly samples + thresholds at water_frac>0.5. Taking a
+    // single CENTER point-sample of the ~19 m OSM mask per field cell quantizes
+    // the coast to the field grid and lets a cell whose center happens to land
+    // in a river/pier read as fully water (or vice-versa) — which, after the
+    // native bilinear spread, smears water blobs ~one field cell inland and
+    // stands shoreline buildings in water. Instead take the AREA fraction of
+    // the hi-res mask over each field cell footprint and majority-vote, so the
+    // coarse land/water boundary tracks the real shoreline as closely as a
+    // 125 m grid allows. (metroforge-native issue: eastern-Manhattan water.)
+    const SUB = 7; // 7×7 sub-samples of the ~19 m mask per 125 m field cell
+    const half = fields.cellSize / 2;
+    const maskFrac = (m: Uint8Array, wx: number, wy: number): number => {
+      let hit = 0;
+      for (let sy = 0; sy < SUB; sy++) {
+        const py = wy - half + ((sy + 0.5) / SUB) * fields.cellSize;
+        for (let sx = 0; sx < SUB; sx++) {
+          const px = wx - half + ((sx + 0.5) / SUB) * fields.cellSize;
+          if (maskAt(m, osm.maskRes, worldSize, px, py)) hit++;
+        }
+      }
+      return hit / (SUB * SUB);
+    };
     for (let cy = 0; cy < fields.h; cy++) {
       for (let cx = 0; cx < fields.w; cx++) {
         const i = cy * fields.w + cx;
         const p = cellCenter(fields, i);
-        const water = maskAt(mask, osm.maskRes, worldSize, p.x, p.y);
+        const water = maskFrac(mask, p.x, p.y) > 0.5;
         fields.water[i] = water ? 1 : 0;
-        if (pmask && !water && maskAt(pmask, osm.maskRes, worldSize, p.x, p.y)) fields.parks[i] = 1;
+        if (pmask && !water && maskFrac(pmask, p.x, p.y) > 0.5) fields.parks[i] = 1;
       }
     }
     // Relief for real cities: the raw fbm amplitude reads as sand dunes on
