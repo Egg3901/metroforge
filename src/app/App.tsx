@@ -15,6 +15,7 @@ import { useStore } from './store';
 import { TutorialCard } from './TutorialCard';
 import { clearTutorialDone, loadTutorialDone } from './tutorial';
 import { getSettings } from './settings';
+import { DesktopPromo } from './DesktopPromo';
 
 const randomSeed = (): number => Math.floor(Math.random() * 1e9);
 const seedFrom = (s: string): number => {
@@ -367,6 +368,7 @@ function NewGameScreen(): React.JSX.Element {
             Replay the first-city lesson (Free Play)
           </button>
         )}
+        <DesktopPromo />
         <p className="text-[11px] text-zinc-600 text-center mt-auto pt-6">
           Learn in Free Play · then chase eras and the daily. Keys: 1–4 modes · S T R B · Space pause.
         </p>
