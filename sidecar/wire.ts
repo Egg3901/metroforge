@@ -215,3 +215,49 @@ export function encodeStaticMask(which: StaticMaskWhich, res: number, mask: Uint
   blitU8(bytes, headerLen, mask, res * res);
   return buf;
 }
+
+// ── msgType=5 StaticBuildings ─────────────────────────────────────────────────
+
+/** One real-OSM building footprint: `v` is a flat [x0,y0,x1,y1,...] outer ring
+ *  in integer half-meters (world meters × 2, rounded; same projected world
+ *  space as roads/masks, origin-centered, y down/north up), wound CCW per
+ *  scripts/build-cities.ts's signedArea2D convention. `h` is the building
+ *  height in decimeters, 0 = unknown. Vertex count MUST be in 3..64 (the
+ *  build script simplifies/caps to this range). */
+export interface StaticBuildingsInput {
+  buildings: { h: number; v: number[] }[];
+}
+
+/** header (12 B): msgType u8=5 | version u8=1 | reserved u16 | buildingCount u32 |
+ *  vertexTotal u32. Body, per building: vertexCount u8 (3..64) | flags u8=0 |
+ *  heightDm u16 | vertexCount × (xHalfM i16, yHalfM i16). Static/non-droppable,
+ *  same class as StaticMask — optional for clients, does not affect
+ *  protocolVersion or gate any other behavior. */
+export function encodeStaticBuildings(f: StaticBuildingsInput): ArrayBuffer {
+  const buildingCount = f.buildings.length;
+  let vertexTotal = 0;
+  for (const b of f.buildings) vertexTotal += b.v.length / 2;
+  const headerLen = 12;
+  const bodyLen = buildingCount * 4 + vertexTotal * 4; // per-building 4B header + 4B/vertex (2×i16)
+  const buf = new ArrayBuffer(headerLen + bodyLen);
+  const dv = new DataView(buf);
+  dv.setUint8(0, 5);
+  dv.setUint8(1, 1);
+  dv.setUint16(2, 0, true);
+  dv.setUint32(4, buildingCount >>> 0, true);
+  dv.setUint32(8, vertexTotal >>> 0, true);
+  let off = headerLen;
+  for (const b of f.buildings) {
+    const vertexCount = b.v.length / 2;
+    dv.setUint8(off, vertexCount);
+    dv.setUint8(off + 1, 0); // flags
+    dv.setUint16(off + 2, b.h, true);
+    off += 4;
+    for (let i = 0; i < vertexCount; i++) {
+      dv.setInt16(off, b.v[i * 2]!, true);
+      dv.setInt16(off + 2, b.v[i * 2 + 1]!, true);
+      off += 4;
+    }
+  }
+  return buf;
+}

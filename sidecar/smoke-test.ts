@@ -112,6 +112,10 @@ class Client {
   lastUiTick = -1;
   lastFrameTick = -1;
   maskCount = 0;
+  /** msgType=5 StaticBuildings — captured unconditionally (like maskCount)
+   *  since it's sent before `fields` in sendStatic, so by the time our
+   *  `fields` wait resolves this has already been processed in order. */
+  buildingsBuf: ArrayBuffer | undefined;
 
   constructor(port: number) {
     this.ws = new WebSocket(`ws://127.0.0.1:${port}`);
@@ -129,6 +133,7 @@ class Client {
         msg = { kind: 'binary', msgType, buf };
         if (msgType === 1) this.captureFrame(dv, buf);
         if (msgType === 4) this.maskCount++;
+        if (msgType === 5) this.buildingsBuf = buf;
       }
       for (let i = this.waiters.length - 1; i >= 0; i--) {
         const w = this.waiters[i]!;
@@ -204,6 +209,37 @@ interface RunResult {
   stateHash: number;
   finalTick: number;
   motionDetected: boolean;
+  buildingCount: number;
+  vertexTotal: number;
+  buildingsBuf: ArrayBuffer;
+}
+
+interface ParsedStaticBuildings {
+  buildingCount: number;
+  vertexTotal: number;
+  vertexCounts: number[];
+  sumVertexCounts: number;
+  consumedBytes: number;
+}
+
+/** Mirrors sidecar/wire.ts's encodeStaticBuildings layout: header (12 B)
+ *  msgType u8=5 | version u8=1 | reserved u16 | buildingCount u32 |
+ *  vertexTotal u32, then per building: vertexCount u8 | flags u8 | heightDm
+ *  u16 | vertexCount × (i16 x, i16 y). */
+function parseStaticBuildings(buf: ArrayBuffer): ParsedStaticBuildings {
+  const dv = new DataView(buf);
+  const buildingCount = dv.getUint32(4, true);
+  const vertexTotal = dv.getUint32(8, true);
+  let off = 12;
+  const vertexCounts: number[] = [];
+  let sumVertexCounts = 0;
+  for (let i = 0; i < buildingCount && off < buf.byteLength; i++) {
+    const vc = dv.getUint8(off);
+    vertexCounts.push(vc);
+    sumVertexCounts += vc;
+    off += 4 + vc * 4;
+  }
+  return { buildingCount, vertexTotal, vertexCounts, sumVertexCounts, consumedBytes: off };
 }
 
 async function runOnce(label: string): Promise<RunResult> {
@@ -221,8 +257,24 @@ async function runOnce(label: string): Promise<RunResult> {
     const readyEnv = await client.waitForType('ready', 15_000);
     const staticCity = (readyEnv.p as { staticCity: Record<string, unknown> }).staticCity;
     const expectedMasks = ['hasWaterMask', 'hasParkMask', 'hasBuildingMask'].filter((k) => staticCity[k] === true).length;
-    await client.waitFor((m) => m.kind === 'binary' && m.msgType === 2, 15_000, 'fields'); // arrives after any masks
+    await client.waitFor((m) => m.kind === 'binary' && m.msgType === 2, 15_000, 'fields'); // arrives after any masks + buildings
     if (client.maskCount !== expectedMasks) fail(`[${label}] expected ${expectedMasks} staticMask frames, saw ${client.maskCount}`);
+
+    // msgType=5 StaticBuildings (metroforge-native issue #6): sent after masks,
+    // before fields, so by now it has already been processed in order.
+    if (!client.buildingsBuf) fail(`[${label}] no StaticBuildings (msgType=5) frame arrived for "${PRESET_KEY}"`);
+    const buildings = parseStaticBuildings(client.buildingsBuf);
+    if (buildings.buildingCount <= 10_000) fail(`[${label}] expected buildingCount > 10,000 for NYC, got ${buildings.buildingCount}`);
+    if (buildings.consumedBytes !== client.buildingsBuf.byteLength) {
+      fail(`[${label}] StaticBuildings frame byte layout inconsistent: consumed ${buildings.consumedBytes}B of ${client.buildingsBuf.byteLength}B`);
+    }
+    if (buildings.sumVertexCounts !== buildings.vertexTotal) {
+      fail(`[${label}] StaticBuildings vertexTotal header ${buildings.vertexTotal} != sum of per-building vertexCounts ${buildings.sumVertexCounts}`);
+    }
+    for (const vc of buildings.vertexCounts) {
+      if (vc < 3 || vc > 64) fail(`[${label}] StaticBuildings vertexCount out of range 3..64: ${vc}`);
+    }
+    if (DEBUG) console.error(`[${label}] buildings: count=${buildings.buildingCount} vertexTotal=${buildings.vertexTotal}`);
 
     // freeze ticking while we build the network (see module doc for why)
     client.send('setSpeed', { speed: 0 });
@@ -306,7 +358,14 @@ async function runOnce(label: string): Promise<RunResult> {
     client.send('shutdown');
     await client.waitFor((m) => m.kind === 'text' && m.env.t === 'bye', 5_000, 'bye').catch(() => undefined);
 
-    return { stateHash: replay.stateHash, finalTick: replay.finalTick, motionDetected };
+    return {
+      stateHash: replay.stateHash,
+      finalTick: replay.finalTick,
+      motionDetected,
+      buildingCount: buildings.buildingCount,
+      vertexTotal: buildings.vertexTotal,
+      buildingsBuf: client.buildingsBuf,
+    };
   } finally {
     client.close();
     sidecar.kill();
@@ -355,9 +414,15 @@ async function main(): Promise<void> {
   console.log(`mf-wire smoke test — sidecar: ${SIDECAR_BIN ?? '(interpreted) bun run index.ts'}`);
 
   const runA = await runOnce('run A');
-  console.log(`run A: finalTick=${runA.finalTick} stateHash=${runA.stateHash} motion=${runA.motionDetected}`);
+  console.log(
+    `run A: finalTick=${runA.finalTick} stateHash=${runA.stateHash} motion=${runA.motionDetected} ` +
+      `buildings=${runA.buildingCount} vertices=${runA.vertexTotal}`,
+  );
   const runB = await runOnce('run B');
-  console.log(`run B: finalTick=${runB.finalTick} stateHash=${runB.stateHash} motion=${runB.motionDetected}`);
+  console.log(
+    `run B: finalTick=${runB.finalTick} stateHash=${runB.stateHash} motion=${runB.motionDetected} ` +
+      `buildings=${runB.buildingCount} vertices=${runB.vertexTotal}`,
+  );
 
   if (!runA.motionDetected) fail('run A: no vehicle motion detected between consecutive frames');
   if (!runB.motionDetected) fail('run B: no vehicle motion detected between consecutive frames');
@@ -368,7 +433,14 @@ async function main(): Promise<void> {
     fail(`stateHash mismatch at identical tick ${runA.finalTick}: A=${runA.stateHash} B=${runB.stateHash}`);
   }
 
-  console.log('PASS: vehicles move, and both runs agree on stateHash at identical tick.');
+  // StaticBuildings is baked from a static import, not derived from sim
+  // state, so it must be byte-for-byte identical across two independent
+  // sidecar processes — any diff would mean nondeterministic encoding.
+  if (!Buffer.from(runA.buildingsBuf).equals(Buffer.from(runB.buildingsBuf))) {
+    fail(`StaticBuildings frame bytes differ between run A (${runA.buildingsBuf.byteLength}B) and run B (${runB.buildingsBuf.byteLength}B)`);
+  }
+
+  console.log('PASS: vehicles move, both runs agree on stateHash at identical tick, and StaticBuildings is byte-identical.');
 }
 
 main().catch((err) => {

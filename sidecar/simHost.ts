@@ -30,8 +30,8 @@ import { getRoutePath } from '@core/transit/routePath';
 import type { Command, Difficulty, GameState, TrackGrade, TransitMode } from '@core/types';
 import { AgentPool } from '@host/agents';
 import type { ReplayPayload, UiState } from '@host/protocol';
-import { resolveCity } from './cities';
-import { binaryMessage, encodeFields, encodeFrame, encodeStaticMask, encodeTraffic, jsonMessage, type Envelope, type OutMessage } from './wire';
+import { resolveBuildings, resolveCity, type BuildingsData } from './cities';
+import { binaryMessage, encodeFields, encodeFrame, encodeStaticBuildings, encodeStaticMask, encodeTraffic, jsonMessage, type Envelope, type OutMessage } from './wire';
 
 interface InitPayload {
   seed: number;
@@ -47,6 +47,11 @@ export class SimHost {
   private fieldsVersion = 1;
   private bankrupt = false;
   private initMeta: { presetKey?: string; size?: MapSize } = {};
+  /** Building-vector data for the current city, set from `presetKey` at
+   *  `init` time. `loadSave` carries no `presetKey` (see host/protocol.ts),
+   *  so it clears this rather than risk streaming the wrong city's
+   *  buildings — the frame is optional, so silently having none is fine. */
+  private buildings: BuildingsData | undefined;
   private readonly agents = new AgentPool();
   private lastFlowsRef: unknown = null;
 
@@ -128,6 +133,7 @@ export class SimHost {
     const osm = resolveCity(p.presetKey);
     const state = newGame(p.seed, p.difficulty, { size: p.size, presetKey: p.presetKey, osm, rules: p.rules });
     this.state = state;
+    this.buildings = resolveBuildings(p.presetKey);
     this.bankrupt = false;
     this.fieldsVersion++;
     this.accumulator = 0;
@@ -140,6 +146,10 @@ export class SimHost {
     try {
       const state = deserialize(p.json);
       this.state = state;
+      // no presetKey travels with a save (host/protocol.ts `loadSave` is
+      // `{json}` only) — clear rather than risk streaming a stale city's
+      // building vectors; the frame is optional so having none is fine.
+      this.buildings = undefined;
       this.bankrupt = state.failed === 'bankrupt';
       this.fieldsVersion++;
       this.sendStatic(state);
@@ -206,6 +216,11 @@ export class SimHost {
       if (s.osmWaterMask) this.send(binaryMessage('staticMask', encodeStaticMask(0, res, s.osmWaterMask)));
       if (s.osmParkMask) this.send(binaryMessage('staticMask', encodeStaticMask(1, res, s.osmParkMask)));
       if (s.osmBuildingMask) this.send(binaryMessage('staticMask', encodeStaticMask(2, res, s.osmBuildingMask)));
+    }
+    // real per-building footprint polygons + heights (optional; only cities
+    // with a generated buildings file have one — see sidecar/cities.ts)
+    if (this.buildings) {
+      this.send(binaryMessage('staticBuildings', encodeStaticBuildings({ buildings: this.buildings.buildings })));
     }
     this.sendFields(s);
   }
