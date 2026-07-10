@@ -26,6 +26,7 @@ import sf from '../src/data/cities/sf.json';
 // requires static imports (no dynamic `import()` at binary boot, same reason
 // the OsmCityData bundles above are static), so cities without a file simply
 // have no entry here and resolveBuildings returns undefined for them.
+import clevelandBuildings from '../src/data/cities/cleveland.buildings.json';
 import nycBuildings from '../src/data/cities/nyc.buildings.json';
 
 export interface CityListEntry {
@@ -43,6 +44,7 @@ export interface BuildingsData {
 }
 
 const BUILDINGS_DATA: Partial<Record<string, BuildingsData>> = {
+  cleveland: clevelandBuildings as unknown as BuildingsData,
   nyc: nycBuildings as unknown as BuildingsData,
 };
 
@@ -71,7 +73,7 @@ export function resolveCity(key: string | undefined): OsmCityData | undefined {
 }
 
 /** Building-vector data for `key`, or undefined if that city has none yet
- *  (v1 ships NYC only — every other city gracefully has no buildings frame). */
+ *  (NYC + Cleveland so far — every other city gracefully has no buildings frame). */
 export function resolveBuildings(key: string | undefined): BuildingsData | undefined {
   if (key === undefined) return undefined;
   return BUILDINGS_DATA[key];
