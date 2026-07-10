@@ -163,17 +163,21 @@ function classifyBuildingRingsTagged(els: OsmEl[]): { ring: LL[]; tags: Record<s
   return outers;
 }
 
+/** Parse the leading number out of an OSM numeric tag value, tolerating unit
+ *  suffixes like " m" (e.g. "48" or "48 m" both parse to 48). Undefined if
+ *  the tag is absent or doesn't start with a number. */
+function leadingFloat(s: string | undefined): number | undefined {
+  if (s === undefined) return undefined;
+  const m = /-?\d+(\.\d+)?/.exec(s.trim());
+  if (!m) return undefined;
+  const v = Number(m[0]);
+  return Number.isFinite(v) ? v : undefined;
+}
+
 /** Parse a building height in meters from OSM tags, priority `height` (meters,
  *  ignoring unit suffixes like " m") > `building:height` > `building:levels`
  *  (× 3.2 m/level). Returns 0 (unknown) if none parse. */
 function buildingHeightMeters(tags: Record<string, string>): number {
-  const leadingFloat = (s: string | undefined): number | undefined => {
-    if (s === undefined) return undefined;
-    const m = /-?\d+(\.\d+)?/.exec(s.trim());
-    if (!m) return undefined;
-    const v = Number(m[0]);
-    return Number.isFinite(v) ? v : undefined;
-  };
   const h = leadingFloat(tags.height);
   if (h !== undefined && h > 0) return h;
   const bh = leadingFloat(tags['building:height']);
@@ -181,6 +185,39 @@ function buildingHeightMeters(tags: Record<string, string>): number {
   const lv = leadingFloat(tags['building:levels']);
   if (lv !== undefined && lv > 0) return lv * 3.2;
   return 0;
+}
+
+/** A building:part's own height in meters, priority height tag then
+ *  building:levels (times 3.2 m per level); no building:height fallback
+ *  here since that tag is an outline convention, not a part one. Returns 0
+ *  (unknown, meaning use the containing outline's height instead) if
+ *  neither parses. */
+function partOwnHeightMeters(tags: Record<string, string>): number {
+  const h = leadingFloat(tags.height);
+  if (h !== undefined && h > 0) return h;
+  const lv = leadingFloat(tags['building:levels']);
+  if (lv !== undefined && lv > 0) return lv * 3.2;
+  return 0;
+}
+
+interface MinHeight {
+  meters: number;
+  /** True only when a min_height/building:min_level tag was actually
+   *  present and parsed; distinguishes "explicitly ground level" from "no
+   *  data" so the min>=height skip rule only fires on real conflicting tag
+   *  data, never on an implicit ground-level default. */
+  explicit: boolean;
+}
+
+/** A building:part's base height in meters, priority min_height tag then
+ *  building:min_level (times 3.2 m per level). Defaults to ground level
+ *  (0, not explicit) when neither tag is present. */
+function partMinHeightMeters(tags: Record<string, string>): MinHeight {
+  const mh = leadingFloat(tags.min_height);
+  if (mh !== undefined) return { meters: Math.max(0, mh), explicit: true };
+  const ml = leadingFloat(tags['building:min_level']);
+  if (ml !== undefined) return { meters: Math.max(0, ml * 3.2), explicit: true };
+  return { meters: 0, explicit: false };
 }
 
 /** Shoelace signed area, computed directly on the exported (x, y-down)
@@ -204,15 +241,18 @@ function signedArea2D(pts: [number, number][]): number {
 
 interface BuildingRecord {
   h: number; // height in decimeters, 0 = unknown
+  mh: number; // min height (base of the mass above ground) in decimeters, 0 = ground based or unknown
   v: number[]; // flat [x0,y0,x1,y1,...] integer half-meters (world meters * 2, rounded)
 }
 
-/** One outer ring -> one exported building footprint, or null if it should be
- *  dropped (degenerate after simplification, or too small). `P` is the same
- *  world-space projection used for roads/water (already ~1 world unit = 1 m,
- *  y down, north up, origin-centered), so the 1.2 m / 2.5 m tolerances below
- *  are literal meters in that space. */
-function processBuildingRing(ringLL: LL[], tags: Record<string, string>, P: (ll: LL) => [number, number]): BuildingRecord | null {
+/** Ring -> simplified, capped, CCW-normalized point list in projected meters,
+ *  or null if it should be dropped (degenerate after simplification, or too
+ *  small). `P` is the same world-space projection used for roads/water
+ *  (already ~1 world unit = 1 m, y down, north up, origin-centered), so the
+ *  1.2 m / 2.5 m tolerances below are literal meters in that space. Shared by
+ *  outline and building:part processing so both go through one simplify/cap/
+ *  winding pipeline. */
+function simplifyRingPoints(ringLL: LL[], P: (ll: LL) => [number, number]): [number, number][] | null {
   let ring = ringLL;
   // OSM closed ways repeat the first point as the last; drop the duplicate so
   // rings are stored open (implicit closing edge), matching road polylines.
@@ -232,35 +272,174 @@ function processBuildingRing(ringLL: LL[], tags: Record<string, string>, P: (ll:
   }
   if (simp.length < 3) return null;
 
-  let area = signedArea2D(simp);
+  const area = signedArea2D(simp);
   if (Math.abs(area) < 15) return null; // < 15 m^2 after simplification
   if (area < 0) simp = simp.slice().reverse(); // normalize to CCW (see signedArea2D doc)
+  return simp;
+}
 
-  const v: number[] = new Array(simp.length * 2);
-  for (let i = 0; i < simp.length; i++) {
-    const [x, y] = simp[i]!;
+/** Flat [x0,y0,x1,y1,...] integer half-meters (world meters * 2, rounded). */
+function pointsToVertexInts(pts: [number, number][]): number[] {
+  const v: number[] = new Array(pts.length * 2);
+  for (let i = 0; i < pts.length; i++) {
+    const [x, y] = pts[i]!;
     v[i * 2] = Math.round(x * 2);
     v[i * 2 + 1] = Math.round(y * 2);
   }
+  return v;
+}
+
+/** Area-weighted polygon centroid (Green's theorem formula, matching the
+ *  signedArea2D convention). Falls back to a plain vertex average for the
+ *  (rare, near-degenerate) case where the signed area is ~0. */
+function polygonCentroid(pts: [number, number][]): [number, number] {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x0, y0] = pts[i]!;
+    const [x1, y1] = pts[(i + 1) % pts.length]!;
+    const cross = x0 * y1 - x1 * y0;
+    a += cross;
+    cx += (x0 + x1) * cross;
+    cy += (y0 + y1) * cross;
+  }
+  a /= 2;
+  if (Math.abs(a) < 1e-6) {
+    let sx = 0, sy = 0;
+    for (const [x, y] of pts) { sx += x; sy += y; }
+    return [sx / pts.length, sy / pts.length];
+  }
+  return [cx / (6 * a), cy / (6 * a)];
+}
+
+/** Ray-casting point-in-polygon test over a point-array ring (as opposed to
+ *  the flat-array version used by the raster mask code below). */
+function pointInPolygonPts(x: number, y: number, poly: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i, i++) {
+    const [xi, yi] = poly[i]!;
+    const [xj, yj] = poly[j]!;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** One outer ring -> one exported outline footprint, or null if it should be
+ *  dropped. Outlines are always ground based (mh=0); see processPartFinal for
+ *  building:part height/minHeight resolution. */
+function processBuildingRing(ringLL: LL[], tags: Record<string, string>, P: (ll: LL) => [number, number]): BuildingRecord | null {
+  const simp = simplifyRingPoints(ringLL, P);
+  if (!simp) return null;
   const meters = buildingHeightMeters(tags);
   const h = meters > 0 ? Math.round(Math.min(500, Math.max(3, meters)) * 10) : 0;
-  return { h, v };
+  return { h, mh: 0, v: pointsToVertexInts(simp) };
+}
+
+/** Resolve a building:part's final {h, mh, v} once its simplified points and
+ *  the meters-height of its containing outline (0 if it has none) are known,
+ *  or null if the part should be dropped: a mapper-specified min_height/
+ *  building:min_level at or above the resolved top height describes a part
+ *  with no visible vertical extent. */
+function processPartFinal(pts: [number, number][], tags: Record<string, string>, parentHeightMeters: number): BuildingRecord | null {
+  const ownMeters = partOwnHeightMeters(tags);
+  const heightMeters = ownMeters > 0 ? ownMeters : parentHeightMeters;
+  const min = partMinHeightMeters(tags);
+  if (heightMeters > 0 && min.explicit && min.meters >= heightMeters) return null;
+
+  const h = heightMeters > 0 ? Math.round(Math.min(500, Math.max(3, heightMeters)) * 10) : 0;
+  let mh = h > 0 ? Math.round(min.meters * 10) : 0;
+  // independent rounding of h (clamped to a 3..500 m band) and mh (unclamped)
+  // can occasionally push mh to or past h even when the pre-round meters
+  // compared cleanly above; keep the mh < h invariant unconditionally.
+  if (mh >= h) mh = Math.max(0, h - 1);
+  return { h, mh, v: pointsToVertexInts(pts) };
+}
+
+interface OutlineCandidate {
+  tags: Record<string, string>;
+  pts: [number, number][];
+  area: number; // abs m^2, same units as part areas below
+  rec: BuildingRecord;
+}
+
+interface BuildingsExportStats {
+  path: string;
+  bytes: number;
+  count: number;
+  withHeight: number;
+  outlinesKept: number;
+  outlinesSuppressed: number;
+  partsExported: number;
+  partsSkipped: number;
+  partsWithMinHeight: number;
 }
 
 /** Build and write the per-building vector export (real footprint polygons +
- *  heights), separate from the coverage-bitmask baked into the main bundle. */
-function buildBuildingsExport(key: string, buildingEls: OsmEl[], P: (ll: LL) => [number, number]): { count: number; withHeight: number; path: string; bytes: number } {
-  const tagged = classifyBuildingRingsTagged(buildingEls);
-  const buildings: BuildingRecord[] = [];
-  for (const { ring, tags } of tagged) {
-    const rec = processBuildingRing(ring, tags, P);
-    if (rec) buildings.push(rec);
+ *  heights), separate from the coverage-bitmask baked into the main bundle.
+ *  `building:part` outer rings are simplified through the same pipeline as
+ *  outlines, associated with a containing outline via a centroid-in-polygon
+ *  test, and heights fall back to that outline's height when the part has
+ *  none of its own. An outline whose contained parts cover 30% or more of
+ *  its own footprint area is suppressed (the parts replace it); outlines
+ *  with less coverage keep both, since the mapper only detailed a fragment. */
+function buildBuildingsExport(
+  key: string,
+  buildingEls: OsmEl[],
+  buildingPartEls: OsmEl[],
+  P: (ll: LL) => [number, number],
+): BuildingsExportStats {
+  const outlineTagged = classifyBuildingRingsTagged(buildingEls);
+  const outlines: OutlineCandidate[] = [];
+  for (const { ring, tags } of outlineTagged) {
+    const pts = simplifyRingPoints(ring, P);
+    if (!pts) continue;
+    const area = Math.abs(signedArea2D(pts));
+    const meters = buildingHeightMeters(tags);
+    const h = meters > 0 ? Math.round(Math.min(500, Math.max(3, meters)) * 10) : 0;
+    outlines.push({ tags, pts, area, rec: { h, mh: 0, v: pointsToVertexInts(pts) } });
   }
-  const bundle = { version: 1, buildings };
+
+  const partTagged = classifyBuildingRingsTagged(buildingPartEls);
+  const partAreaByOutline = new Array<number>(outlines.length).fill(0);
+  const parts: BuildingRecord[] = [];
+  let partsSkipped = 0;
+  let partsWithMinHeight = 0;
+  for (const { ring, tags } of partTagged) {
+    const pts = simplifyRingPoints(ring, P);
+    if (!pts) { partsSkipped++; continue; }
+    const area = Math.abs(signedArea2D(pts));
+    const centroid = polygonCentroid(pts);
+    let parentIdx = -1;
+    for (let i = 0; i < outlines.length; i++) {
+      if (pointInPolygonPts(centroid[0]!, centroid[1]!, outlines[i]!.pts)) { parentIdx = i; break; }
+    }
+    const parentHeightMeters = parentIdx >= 0 ? buildingHeightMeters(outlines[parentIdx]!.tags) : 0;
+    const rec = processPartFinal(pts, tags, parentHeightMeters);
+    if (!rec) { partsSkipped++; continue; }
+    parts.push(rec);
+    if (rec.mh > 0) partsWithMinHeight++;
+    if (parentIdx >= 0) partAreaByOutline[parentIdx]! += area;
+  }
+
+  const suppressed = outlines.map((oc, i) => oc.area > 0 && partAreaByOutline[i]! / oc.area >= 0.3);
+  const keptOutlines = outlines.filter((_, i) => !suppressed[i]);
+  const outlinesSuppressed = outlines.length - keptOutlines.length;
+
+  const buildings: BuildingRecord[] = [...keptOutlines.map((o) => o.rec), ...parts];
+  const bundle = { version: 2, buildings };
   const path = `src/data/cities/${key}.buildings.json`;
   const json = JSON.stringify(bundle);
   writeFileSync(path, json);
-  return { count: buildings.length, withHeight: buildings.filter((b) => b.h > 0).length, path, bytes: json.length };
+  return {
+    path,
+    bytes: json.length,
+    count: buildings.length,
+    withHeight: buildings.filter((b) => b.h > 0).length,
+    outlinesKept: keptOutlines.length,
+    outlinesSuppressed,
+    partsExported: parts.length,
+    partsSkipped,
+    partsWithMinHeight,
+  };
 }
 
 /** Outer + inner (hole) rings, so multipolygon water with land holes is correct. */
@@ -327,6 +506,13 @@ function build(cfg: CityCfg): void {
   const buildingEls = fetchRaw(
     `[out:json][timeout:180];(way["building"](${bb});relation["building"](${bb}););out geom;`,
     `${cfg.key}-buildings`,
+  );
+  // building:part sub-masses (Empire State tiers, podium+tower splits, ...)
+  // exported as extra stacked footprints alongside (or in place of) their
+  // containing outline; see buildBuildingsExport.
+  const buildingPartEls = fetchRaw(
+    `[out:json][timeout:180];(way["building:part"](${bb});relation["building:part"](${bb}););out geom;`,
+    `${cfg.key}-buildingparts`,
   );
 
   // equirectangular projection around bbox center, north-up, fit to world square
@@ -451,13 +637,18 @@ function build(cfg: CityCfg): void {
   for (let i = 0; i < buildingBits.length; i++) if (water[i]) buildingBits[i] = 0; // never on water
 
   // real per-building footprint polygons + heights, written alongside the
-  // rasterized coverage mask above (metroforge-native issue #6 data half)
+  // rasterized coverage mask above (metroforge-native issue #6 data half,
+  // building:part stacked-mass support per issue #16 item 1)
   mkdirSync('src/data/cities', { recursive: true });
-  const buildingsExport = buildBuildingsExport(cfg.key, buildingEls, P);
+  const buildingsExport = buildBuildingsExport(cfg.key, buildingEls, buildingPartEls, P);
   const kbB = (buildingsExport.bytes / 1024) | 0;
   console.log(
     `${cfg.key}: buildings vectors: ${buildingsExport.count} (${buildingsExport.withHeight} with real height, ` +
       `${buildingsExport.count - buildingsExport.withHeight} unknown) → ${buildingsExport.path} (${kbB} KB)`,
+  );
+  console.log(
+    `${cfg.key}: outlines kept ${buildingsExport.outlinesKept}, outlines suppressed by parts ${buildingsExport.outlinesSuppressed}, ` +
+      `parts exported ${buildingsExport.partsExported} (${buildingsExport.partsWithMinHeight} with minHeight>0), parts skipped ${buildingsExport.partsSkipped}`,
   );
 
   // bake final masks
