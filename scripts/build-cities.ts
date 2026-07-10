@@ -12,6 +12,7 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { encodePng } from './png';
+import { expandBboxToSquare } from './geo-utils';
 
 const WORLD = 12000; // fit each city into a 12km square (matches medium map)
 const HALF = WORLD / 2;
@@ -69,13 +70,16 @@ function fetchRaw(query: string, cacheKey: string): OsmEl[] {
   if (existsSync(cache) && readFileSync(cache, 'utf8').trimStart().startsWith('{')) {
     json = readFileSync(cache, 'utf8');
   } else {
-    writeFileSync('/tmp/q.overpass', query);
+    // per-key query file: a single shared /tmp/q.overpass gets clobbered when
+    // two importer runs overlap, silently caching the WRONG query's response
+    const qFile = `/tmp/q-${cacheKey}.overpass`;
+    writeFileSync(qFile, query);
     for (let attempt = 0; attempt < 6 && !json.trimStart().startsWith('{'); attempt++) {
       const url = ENDPOINTS[attempt % ENDPOINTS.length]!;
       try {
         json = execFileSync(
           'curl',
-          ['-s', '--max-time', '120', '-G', url, '--data-urlencode', 'data@/tmp/q.overpass'],
+          ['-s', '--max-time', '420', '-G', url, '--data-urlencode', `data@${qFile}`],
           { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
         );
       } catch {
@@ -469,7 +473,12 @@ const CLASS: Record<string, 'arterial' | 'collector' | 'local'> = {
 };
 
 function build(cfg: CityCfg): void {
-  const [s, w, n, e] = cfg.bbox;
+  // expand the configured bbox to a square (in meters) around its centroid
+  // before doing anything else — Overpass queries, ocean-polygon lookup, and
+  // the projection below all need to agree on the same square area, or the
+  // shorter axis leaves the world square's east/west (or north/south) thirds
+  // empty. See scripts/geo-utils.ts.
+  const [s, w, n, e] = expandBboxToSquare(cfg.bbox);
   const bb = `${s},${w},${n},${e}`;
   const roads = waysOf(fetchRaw(
     `[out:json][timeout:90];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|unclassified)(_link)?$"](${bb});out geom;`,
@@ -533,7 +542,12 @@ function build(cfg: CityCfg): void {
     const pts = way.geometry.map(P);
     const simp = simplify(pts, 5);
     if (simp.length < 2) continue;
-    outRoads.push({ cls, pts: simp.flatMap(([x, y]) => [Math.round(x), Math.round(y)]) });
+    // OSM ways crossing the bbox edge keep their full geometry beyond the
+    // fetched area; clip to the world square so no road point/segment can
+    // render off the map edge, splitting into sub-polylines as needed.
+    for (const seg of clipPolylineToBox(simp, HALF)) {
+      outRoads.push({ cls, pts: seg.flatMap(([x, y]) => [Math.round(x), Math.round(y)]) });
+    }
   }
 
   // union: pre-assembled sea polygons + inland OSM water (both with holes)
@@ -581,6 +595,12 @@ function build(cfg: CityCfg): void {
     if (angle < -Math.PI / 2) angle += Math.PI;
     labels.push({ kind: 'road', name, x: Math.round(x), y: Math.round(y), angle: Math.round(angle * 1000) / 1000, imp: CLASS[way.tags.highway ?? ''] === 'arterial' ? 2.5 : 1.6 });
   }
+  // clamp every label anchor into the world square — a feature centroid can
+  // sit slightly outside the fetched bbox, and roads/labels must never
+  // render off the visible map (see clipPolylineToBox for the road-line
+  // analog, applied above).
+  const clampToWorld = (v: number): number => Math.max(-HALF, Math.min(HALF, v));
+  for (const l of labels) { l.x = clampToWorld(l.x); l.y = clampToWorld(l.y); }
 
   const pointInPoly = (x: number, y: number, poly: number[]): boolean => {
     let inside = false;
@@ -687,6 +707,66 @@ function build(cfg: CityCfg): void {
   writeFileSync(path, JSON.stringify(bundle));
   const kb = (JSON.stringify(bundle).length / 1024) | 0;
   console.log(`${cfg.key}: ${outRoads.length} roads, ${ocean.outers.length} sea, ${waterOuter.length} water, ${parkPolys.length} parks, ${buildingR.outers.length} buildings → ${path} (${kb} KB)`);
+}
+
+/** Clip a single segment [x0,y0]-[x1,y1] against the box [-half,half]^2 using
+ *  Liang-Barsky; returns the clipped segment, or null if it lies entirely
+ *  outside the box. */
+function clipSegmentToBox(
+  x0: number, y0: number, x1: number, y1: number, half: number,
+): [number, number, number, number] | null {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  let t0 = 0;
+  let t1 = 1;
+  const p = [-dx, dx, -dy, dy];
+  const q = [x0 - -half, half - x0, y0 - -half, half - y0];
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) {
+      if (q[i]! < 0) return null; // parallel and outside
+    } else {
+      const r = q[i]! / p[i]!;
+      if (p[i]! < 0) {
+        if (r > t1) return null;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return null;
+        if (r < t1) t1 = r;
+      }
+    }
+  }
+  return [x0 + t0 * dx, y0 + t0 * dy, x0 + t1 * dx, y0 + t1 * dy];
+}
+
+/** Clip a polyline against the world square [-half,half]^2, splitting it into
+ *  one or more sub-polylines wherever it exits/re-enters the box. Any
+ *  resulting sub-polyline with fewer than 2 points is dropped. Points are
+ *  compared with a tiny epsilon so consecutive clipped segments that share an
+ *  endpoint merge into one continuous polyline instead of fragmenting. */
+function clipPolylineToBox(pts: [number, number][], half: number): [number, number][][] {
+  const out: [number, number][][] = [];
+  let cur: [number, number][] = [];
+  const EPS = 1e-6;
+  const last = (): [number, number] | undefined => cur[cur.length - 1];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, ay] = pts[i]!;
+    const [bx, by] = pts[i + 1]!;
+    const clipped = clipSegmentToBox(ax, ay, bx, by, half);
+    if (!clipped) {
+      if (cur.length >= 2) out.push(cur);
+      cur = [];
+      continue;
+    }
+    const [cx0, cy0, cx1, cy1] = clipped;
+    const p = last();
+    if (!p || Math.abs(p[0] - cx0) > EPS || Math.abs(p[1] - cy0) > EPS) {
+      if (cur.length >= 2) out.push(cur);
+      cur = [[cx0, cy0]];
+    }
+    cur.push([cx1, cy1]);
+  }
+  if (cur.length >= 2) out.push(cur);
+  return out;
 }
 
 // Ramer–Douglas–Peucker

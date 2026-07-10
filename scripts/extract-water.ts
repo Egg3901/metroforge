@@ -13,12 +13,15 @@
  */
 import * as shapefile from 'shapefile';
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { expandBboxToSquare } from './geo-utils';
 
 // full-resolution water polygons (exact shoreline detail)
 const SHP = '.cache/osmdata/water-polygons-split-3857/water_polygons';
 
-/** city bboxes: [south, west, north, east] — keep in sync with build-cities.ts */
-const CITIES: Record<string, [number, number, number, number]> = {
+/** city bboxes: [south, west, north, east] — keep in sync with build-cities.ts.
+ *  Expanded to a square (see geo-utils.ts) so the ocean polygons extracted
+ *  here cover exactly the same area build-cities.ts fetches/projects. */
+const RAW_CITIES: Record<string, [number, number, number, number]> = {
   nyc: [40.695, -74.02, 40.80, -73.93],
   boston: [42.33, -71.11, 42.40, -71.02],
   chicago: [41.83, -87.70, 41.95, -87.58],
@@ -30,6 +33,9 @@ const CITIES: Record<string, [number, number, number, number]> = {
   dc: [38.86, -77.07, 38.94, -76.97],
   seattle: [47.57, -122.38, 47.65, -122.28],
 };
+const CITIES: Record<string, [number, number, number, number]> = Object.fromEntries(
+  Object.entries(RAW_CITIES).map(([k, bbox]) => [k, expandBboxToSquare(bbox)]),
+);
 
 const R = 20037508.342789244;
 const toLL = (x: number, y: number): [number, number] => [
