@@ -1,0 +1,32 @@
+# Lean self-hosted CI (Woodpecker on Hetzner, workflows.ahousedividedgame.com).
+# Matches the a-house-divided repo's pipeline: local/exec backend, no
+# host-path `volumes:` mounts (those need repo "trust" and were flaky here in
+# practice — see a-house-divided's .woodpecker.yml for the incident). No
+# `build`/`vite build` step — typecheck + test gate correctness; the actual
+# build happens at deploy time.
+
+when:
+  - event: pull_request
+  - event: push
+    branch: [master]
+
+clone:
+  git:
+    image: docker.io/woodpeckerci/plugin-git
+    settings:
+      lfs: false
+
+steps:
+  install:
+    image: sh
+    commands: [npm ci --no-audit --no-fund]
+
+  typecheck:
+    image: sh
+    commands: [npm run typecheck]
+    depends_on: [install]
+
+  test:
+    image: sh
+    commands: [npm run test]
+    depends_on: [install]
