@@ -221,28 +221,38 @@ export function encodeStaticMask(which: StaticMaskWhich, res: number, mask: Uint
 /** One real-OSM building footprint: `v` is a flat [x0,y0,x1,y1,...] outer ring
  *  in integer half-meters (world meters × 2, rounded; same projected world
  *  space as roads/masks, origin-centered, y down/north up), wound CCW per
- *  scripts/build-cities.ts's signedArea2D convention. `h` is the building
- *  height in decimeters, 0 = unknown. Vertex count MUST be in 3..64 (the
- *  build script simplifies/caps to this range). */
+ *  scripts/build-cities.ts's signedArea2D convention. `h` is the mass's top
+ *  height in decimeters, 0 = unknown. `mh` is the mass's base height (min
+ *  height) in decimeters, 0 = ground based or unknown; when nonzero it is
+ *  always strictly less than `h` (a building:part sub-mass, e.g. an upper
+ *  tower tier that starts above a podium). Vertex count MUST be in 3..64
+ *  (the build script simplifies/caps to this range). */
 export interface StaticBuildingsInput {
-  buildings: { h: number; v: number[] }[];
+  buildings: { h: number; mh: number; v: number[] }[];
 }
 
-/** header (12 B): msgType u8=5 | version u8=1 | reserved u16 | buildingCount u32 |
+/** header (12 B): msgType u8=5 | version u8=2 | reserved u16 | buildingCount u32 |
  *  vertexTotal u32. Body, per building: vertexCount u8 (3..64) | flags u8=0 |
- *  heightDm u16 | vertexCount × (xHalfM i16, yHalfM i16). Static/non-droppable,
- *  same class as StaticMask — optional for clients, does not affect
- *  protocolVersion or gate any other behavior. */
+ *  heightDm u16 | minHeightDm u16 | vertexCount × (xHalfM i16, yHalfM i16).
+ *  Static/non-droppable, same class as StaticMask: optional for clients,
+ *  does not affect protocolVersion or gate any other behavior.
+ *
+ *  Version note: v1 clients (metroforge-native 0.1.3 and earlier) expect a
+ *  4-byte per-building header (no minHeightDm) and read the version byte
+ *  before parsing the body, so a v1 client reading a v2 frame sees the
+ *  version mismatch first and can reject the frame cleanly (log an
+ *  UnsupportedVersion warning, fall back to the building mask) instead of
+ *  misreading the now-6-byte stride as vertex data. */
 export function encodeStaticBuildings(f: StaticBuildingsInput): ArrayBuffer {
   const buildingCount = f.buildings.length;
   let vertexTotal = 0;
   for (const b of f.buildings) vertexTotal += b.v.length / 2;
   const headerLen = 12;
-  const bodyLen = buildingCount * 4 + vertexTotal * 4; // per-building 4B header + 4B/vertex (2×i16)
+  const bodyLen = buildingCount * 6 + vertexTotal * 4; // per-building 6B header + 4B/vertex (2×i16)
   const buf = new ArrayBuffer(headerLen + bodyLen);
   const dv = new DataView(buf);
   dv.setUint8(0, 5);
-  dv.setUint8(1, 1);
+  dv.setUint8(1, 2);
   dv.setUint16(2, 0, true);
   dv.setUint32(4, buildingCount >>> 0, true);
   dv.setUint32(8, vertexTotal >>> 0, true);
@@ -250,9 +260,10 @@ export function encodeStaticBuildings(f: StaticBuildingsInput): ArrayBuffer {
   for (const b of f.buildings) {
     const vertexCount = b.v.length / 2;
     dv.setUint8(off, vertexCount);
-    dv.setUint8(off + 1, 0); // flags
+    dv.setUint8(off + 1, 0); // flags, reserved
     dv.setUint16(off + 2, b.h, true);
-    off += 4;
+    dv.setUint16(off + 4, b.mh, true);
+    off += 6;
     for (let i = 0; i < vertexCount; i++) {
       dv.setInt16(off, b.v[i * 2]!, true);
       dv.setInt16(off + 2, b.v[i * 2 + 1]!, true);

@@ -215,31 +215,41 @@ interface RunResult {
 }
 
 interface ParsedStaticBuildings {
+  version: number;
   buildingCount: number;
   vertexTotal: number;
   vertexCounts: number[];
+  heights: number[];
+  minHeights: number[];
   sumVertexCounts: number;
   consumedBytes: number;
 }
 
 /** Mirrors sidecar/wire.ts's encodeStaticBuildings layout: header (12 B)
- *  msgType u8=5 | version u8=1 | reserved u16 | buildingCount u32 |
+ *  msgType u8=5 | version u8=2 | reserved u16 | buildingCount u32 |
  *  vertexTotal u32, then per building: vertexCount u8 | flags u8 | heightDm
- *  u16 | vertexCount × (i16 x, i16 y). */
+ *  u16 | minHeightDm u16 | vertexCount × (i16 x, i16 y). */
 function parseStaticBuildings(buf: ArrayBuffer): ParsedStaticBuildings {
   const dv = new DataView(buf);
+  const version = dv.getUint8(1);
   const buildingCount = dv.getUint32(4, true);
   const vertexTotal = dv.getUint32(8, true);
   let off = 12;
   const vertexCounts: number[] = [];
+  const heights: number[] = [];
+  const minHeights: number[] = [];
   let sumVertexCounts = 0;
   for (let i = 0; i < buildingCount && off < buf.byteLength; i++) {
     const vc = dv.getUint8(off);
+    const h = dv.getUint16(off + 2, true);
+    const mh = dv.getUint16(off + 4, true);
     vertexCounts.push(vc);
+    heights.push(h);
+    minHeights.push(mh);
     sumVertexCounts += vc;
-    off += 4 + vc * 4;
+    off += 6 + vc * 4;
   }
-  return { buildingCount, vertexTotal, vertexCounts, sumVertexCounts, consumedBytes: off };
+  return { version, buildingCount, vertexTotal, vertexCounts, heights, minHeights, sumVertexCounts, consumedBytes: off };
 }
 
 async function runOnce(label: string): Promise<RunResult> {
@@ -264,6 +274,7 @@ async function runOnce(label: string): Promise<RunResult> {
     // before fields, so by now it has already been processed in order.
     if (!client.buildingsBuf) fail(`[${label}] no StaticBuildings (msgType=5) frame arrived for "${PRESET_KEY}"`);
     const buildings = parseStaticBuildings(client.buildingsBuf);
+    if (buildings.version !== 2) fail(`[${label}] StaticBuildings version byte expected 2, got ${buildings.version}`);
     if (buildings.buildingCount <= 10_000) fail(`[${label}] expected buildingCount > 10,000 for NYC, got ${buildings.buildingCount}`);
     if (buildings.consumedBytes !== client.buildingsBuf.byteLength) {
       fail(`[${label}] StaticBuildings frame byte layout inconsistent: consumed ${buildings.consumedBytes}B of ${client.buildingsBuf.byteLength}B`);
@@ -274,7 +285,26 @@ async function runOnce(label: string): Promise<RunResult> {
     for (const vc of buildings.vertexCounts) {
       if (vc < 3 || vc > 64) fail(`[${label}] StaticBuildings vertexCount out of range 3..64: ${vc}`);
     }
-    if (DEBUG) console.error(`[${label}] buildings: count=${buildings.buildingCount} vertexTotal=${buildings.vertexTotal}`);
+    // minHeight consistency: mh is 0 (ground based or unknown) or strictly
+    // less than h; also confirm NYC actually produced some minHeight>0
+    // building:part masses (upper tower tiers above a podium).
+    let minHeightViolations = 0;
+    let partsWithMinHeight = 0;
+    for (let i = 0; i < buildings.buildingCount; i++) {
+      const h = buildings.heights[i]!;
+      const mh = buildings.minHeights[i]!;
+      if (mh > 0) partsWithMinHeight++;
+      if (!(mh === 0 || mh < h)) minHeightViolations++;
+    }
+    if (minHeightViolations > 0) {
+      fail(`[${label}] ${minHeightViolations} StaticBuildings entries have minHeight >= height (mh must be 0 or < h)`);
+    }
+    if (partsWithMinHeight === 0) fail(`[${label}] expected some building:part masses with minHeight > 0 for NYC, got none`);
+    if (DEBUG) {
+      console.error(
+        `[${label}] buildings: count=${buildings.buildingCount} vertexTotal=${buildings.vertexTotal} withMinHeight=${partsWithMinHeight}`,
+      );
+    }
 
     // freeze ticking while we build the network (see module doc for why)
     client.send('setSpeed', { speed: 0 });

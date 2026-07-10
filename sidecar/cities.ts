@@ -35,10 +35,11 @@ export interface CityListEntry {
 
 /** One real-OSM building footprint as produced by scripts/build-cities.ts:
  *  `v` flat [x0,y0,...] outer-ring vertices in integer half-meters, `h`
- *  height in decimeters (0 = unknown). */
+ *  top height in decimeters (0 = unknown), `mh` base (min) height in
+ *  decimeters (0 = ground based or unknown; building:part sub-masses only). */
 export interface BuildingsData {
   version: number;
-  buildings: { h: number; v: number[] }[];
+  buildings: { h: number; mh: number; v: number[] }[];
 }
 
 const BUILDINGS_DATA: Partial<Record<string, BuildingsData>> = {
