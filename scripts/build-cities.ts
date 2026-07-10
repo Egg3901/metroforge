@@ -25,7 +25,7 @@ function packMask(bits: Uint8Array): string {
   return Buffer.from(packed).toString('base64');
 }
 
-interface CityCfg {
+export interface CityCfg {
   key: string;
   label: string;
   /** OSM bbox: south, west, north, east */
@@ -33,7 +33,7 @@ interface CityCfg {
 }
 
 // bboxes must match scripts/extract-water.ts
-const CITIES: CityCfg[] = [
+export const CITIES: CityCfg[] = [
   { key: 'nyc', label: 'New York', bbox: [40.695, -74.02, 40.80, -73.93] },
   { key: 'boston', label: 'Boston', bbox: [42.33, -71.11, 42.40, -71.02] },
   { key: 'chicago', label: 'Chicago', bbox: [41.83, -87.70, 41.95, -87.58] },
@@ -829,9 +829,14 @@ function writePreview(key: string, roads: { cls: string; pts: number[] }[], bits
   writeFileSync(`grader/city-${key}.png`, encodePng(W, W, rgb));
 }
 
-const only = process.argv[2];
-for (const c of CITIES) {
-  if (only && c.key !== only) continue;
-  build(c);
+// Guarded so importing CITIES/build() from another script (e.g.
+// scripts/height-join.ts, which needs the bbox table but must NOT trigger a
+// full re-fetch/rebuild of every city as a side effect of import) is safe.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const only = process.argv[2];
+  for (const c of CITIES) {
+    if (only && c.key !== only) continue;
+    build(c);
+  }
+  console.log('done. previews: grader/city-*.png');
 }
-console.log('done. previews: grader/city-*.png');
