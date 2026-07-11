@@ -111,13 +111,13 @@ export function ToySplash({ onStart }: { onStart: () => void }): React.JSX.Eleme
           data-testid="toy-start"
           className="mt-8 w-full max-w-xs py-3.5 rounded-xl bg-[var(--mf-accent)] hover:brightness-110 text-[var(--mf-bg)] font-bold text-base transition-[filter] toy-cta-in"
         >
-          Start the Cleveland toy
+          Start building
         </button>
         <a
           href={DOWNLOAD_HREF}
           className="mt-4 text-sm text-[var(--mf-accent)] hover:underline underline-offset-2"
         >
-          Or download the desktop game
+          Get the full game for desktop
         </a>
         <p className="text-[11px] text-[var(--mf-text-dim)]/70 mt-auto pt-10">
           Keys: S station · T track · R route · Enter finish · Space pause
