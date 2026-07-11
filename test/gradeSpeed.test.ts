@@ -230,7 +230,7 @@ describe('surface vs elevated corridor (dense city)', () => {
     expect(eMaint / sMaint).toBeCloseTo(GRADE_MAINT_MULT.elevated / GRADE_MAINT_MULT.surface, 6);
   });
 
-  it('busy corridor still rewards grade separation (elevated earns more net riders per build $)', () => {
+  it('busy corridor still rewards grade separation (elevated earns more riders and revenue)', () => {
     const surface = buildTramLine(SEED, 'surface');
     const elevated = buildTramLine(SEED, 'elevated');
     for (let t = 0; t < TICKS_PER_DAY * 4 + 20; t++) {
@@ -241,17 +241,10 @@ describe('surface vs elevated corridor (dense city)', () => {
     const eR = elevated.routes[0]!;
     const sBuild = surface.tracks.reduce((a, t) => a + t.buildCost, 0);
     const eBuild = elevated.tracks.reduce((a, t) => a + t.buildCost, 0);
-    // elevated's ridership premium more than offsets its build premium on a dense spine
-    const sRidersPerM = sR.dailyRidership / sBuild;
-    const eRidersPerM = eR.dailyRidership / eBuild;
-    // not always true for every seed if elevated is 2.6× — assert the operating
-    // win instead: elevated carries more riders and recovers more farebox
+    // elevated's operating win: more riders and farebox despite the build premium
     expect(eR.dailyRidership).toBeGreaterThan(sR.dailyRidership);
     expect(eR.dailyRevenue).toBeGreaterThan(sR.dailyRevenue);
-    // surface still cheaper to lay
     expect(sBuild).toBeLessThan(eBuild);
-    void sRidersPerM;
-    void eRidersPerM;
   });
 
   it('exposes avgEffectiveSpeed on route extras for the route inspector', () => {
