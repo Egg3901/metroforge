@@ -105,6 +105,10 @@ export interface UiState {
    * ignore unknown fields.
    */
   scenarioProgression?: import('@core/scenario').ScenarioProgressionManifest;
+   * Spatial analytics insights (underserved district, overloaded corridor,
+   * network efficiency, 400m catchment). Additive — older clients ignore.
+   */
+  analytics?: import('@core/analytics').AnalyticsInsights;
 }
 
 export interface StaticCity {
@@ -190,6 +194,7 @@ export type FromSim =
   | { type: 'fields'; payload: FieldsPayload }
   | { type: 'traffic'; payload: TrafficPayload }
   | { type: 'demand'; payload: DemandPayload }
+  | { type: 'heatmap'; payload: import('@core/analytics').HeatmapPayload }
   | { type: 'frame'; snapshot: FrameSnapshot }
   | { type: 'ui'; ui: UiState }
   | { type: 'commandResult'; requestId: number; result: CommandResult }

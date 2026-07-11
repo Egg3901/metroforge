@@ -15,6 +15,7 @@ import {
   type ScenarioState,
 } from '@core/scenario';
 import { diurnalFactor, hourOfDay } from '@core/timeOfDay';
+import type { AnalyticsInsights } from '@core/analytics';
 import type { GameState, LifetimeLedger, RouteDef } from '@core/types';
 
 export interface UiRouteExtras {
@@ -67,6 +68,8 @@ export interface UiStateExtras {
    * separate catalog fetch. Older clients ignore the field.
    */
   scenarioProgression?: ScenarioProgressionManifest;
+  /** spatial analytics insights; omitted until the first analytics day closes */
+  analytics?: AnalyticsInsights;
 }
 
 /** The current time-of-day factor for `s`; hand to `routeExtras` per route so
@@ -93,5 +96,6 @@ export function uiExtras(s: GameState): UiStateExtras {
   };
   if (s.budget.lifetime) extras.lifetime = s.budget.lifetime;
   if (s.scenario) extras.scenarioState = buildScenarioState(s.scenario, s);
+  if (s.analytics) extras.analytics = s.analytics.insights;
   return extras;
 }

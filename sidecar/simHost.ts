@@ -33,8 +33,19 @@ import type { Command, Difficulty, GameState, TrackGrade, TransitMode } from '@c
 import { AgentPool } from '@host/agents';
 import type { ReplayPayload, UiState } from '@host/protocol';
 import { routeExtras, todFactorOf, uiExtras } from '@host/uiExtras';
+import { analyticsInsightLines, encodeHeatmapPayload, type HeatmapPayload } from '@core/analytics';
 import { resolveBuildings, resolveCity, type BuildingsData } from './cities';
-import { binaryMessage, encodeFields, encodeFrame, encodeStaticBuildings, encodeStaticMask, encodeTraffic, jsonMessage, type Envelope, type OutMessage } from './wire';
+import {
+  binaryMessage,
+  encodeFields,
+  encodeFrame,
+  encodeStaticBuildings,
+  encodeStaticMask,
+  encodeTraffic,
+  jsonMessage,
+  type Envelope,
+  type OutMessage,
+} from './wire';
 
 interface InitPayload {
   seed: number;
@@ -319,6 +330,7 @@ export class SimHost {
     if (gap && s.stats.transitShare < 0.4) {
       out.push('Big travel demand is still driving. Check the Gaps overlay for where to build next.');
     }
+    if (s.analytics) out.push(...analyticsInsightLines(s.analytics.insights, 2));
     for (const a of s.activeEvents) {
       const d = EVENT_DEFS.find((e) => e.id === a.id);
       if (d) out.push(`${d.name}: ${d.desc}`);
@@ -427,6 +439,10 @@ export class SimHost {
     this.send(jsonMessage('demand', { lines: lines.map((l) => ({ ...l })), maxWeight }));
   }
 
+  private sendHeatmap(payload: HeatmapPayload): void {
+    this.send(binaryMessage('heatmap', encodeHeatmapPayload(payload)));
+  }
+
   private sendFrame(s: GameState): void {
     const colorTable = new Uint32Array(s.routes.length);
     s.routes.forEach((r, i) => {
@@ -502,6 +518,7 @@ export class SimHost {
         this.fieldsVersion++;
         this.sendFields(s);
       }
+      if (events.heatmap) this.sendHeatmap(events.heatmap);
     }
     if (s.flows !== this.lastFlowsRef) {
       this.lastFlowsRef = s.flows;

@@ -66,12 +66,44 @@ The sim runs in a Web Worker by default. The message protocol is deliberately th
 ← ready { staticCity }                    // geometry that never changes per-tick
 ← fields { payload }                       // land-use field textures, re-baked on growth
 ← traffic { payload }                      // congestion field + hotspots, on assignment change
+← demand { payload }                       // unserved-demand desire lines, on assignment change
+← heatmap { payload }                      // optional quantized ridership grid, every N sim-days
 ← frame { tick, renderSnapshot }          // typed-array positions: vehicles, agents
-← ui { ... }                               // low-frequency UI state
+← ui { ... }                               // low-frequency UI state (optional `analytics` insights)
 ← saved { json }
 ```
 
 `renderSnapshot` uses transferable `Float32Array`s (id, x, y, heading, occupancy per vehicle/agent) so 60 fps rendering never touches structured clone of the world. The `traffic` payload likewise transfers its congestion `Float32Array`. (Ambient cars were removed in 1.0 — road load is shown via the congestion overlay, not sprites.)
+
+### Analytics layer (`core/analytics.ts`)
+
+Presentation-only. Accumulates a **per-cell ridership heatmap** (station boardings + alightings, mean over a rolling 7-sim-day window) and a **district OD matrix** from gravity-model assignment output, then derives insight metrics on the UI envelope:
+
+| Metric | Definition |
+|---|---|
+| Worst underserved district | Max `demand × (1 − transitShare)` over origin districts |
+| Most overloaded corridor | Max `route.segmentLoads[i]` |
+| Network efficiency | `dailyTransitTrips / dailyVehicleKm` |
+| Catchment coverage | Population share within **400 m** of a station on an active route |
+
+Heatmap wire form (sidecar binary `msgType=6`, also mirrored as structured `heatmap` for the web worker). Little-endian:
+
+```
+offset  size  type   field
+0       1     u8     msgType = 6
+1       1     u8     version = 1
+2       2     u16    reserved = 0
+4       4     u32    w
+8       4     u32    h
+12      4     f32    cellSize (m)
+16      4     f32    originX
+20      4     f32    originY
+24      4     f32    maxValue   // raw activity at quantized 255
+28      4     u32    day        // sim-day emitted
+32      w*h   u8[]   cells      // row-major, 0..255; value ≈ cell/255 * maxValue
+```
+
+Total = `32 + w*h` bytes (9248 B at 96×96). Budget **50 KiB**. Clients that do not understand `msgType=6` / `ui.analytics` ignore them. Analytics state is transient (stripped from saves) and never feeds the economy.
 
 ## Rendering
 

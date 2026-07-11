@@ -19,6 +19,8 @@ import { playableScenario, type ScenarioDef } from '@core/scenario';
 import { AgentPool } from './agents';
 import type { FromSim, ToSim, UiState } from './protocol';
 import { routeExtras, todFactorOf, uiExtras } from './uiExtras';
+import { analyticsInsightLines } from '@core/analytics';
+import type { HeatmapPayload } from '@core/analytics';
 
 let state: GameState | null = null;
 let speed = 1; // game-seconds per real second (1x = 1); UI offers 1/10/30/120
@@ -100,6 +102,7 @@ function computeInsights(s: GameState): string[] {
   if (gap && s.stats.transitShare < 0.4) {
     out.push('Big travel demand is still driving. Check the Gaps overlay for where to build next.');
   }
+  if (s.analytics) out.push(...analyticsInsightLines(s.analytics.insights, 2));
   for (const a of s.activeEvents) {
     const d = EVENT_DEFS.find((e) => e.id === a.id);
     if (d) out.push(`${d.name}: ${d.desc}`);
@@ -202,6 +205,26 @@ function sendDemand(s: GameState): void {
   post({ type: 'demand', payload: { lines: lines.map((l) => ({ ...l })), maxWeight } });
 }
 
+function sendHeatmap(payload: HeatmapPayload): void {
+  const cells = Uint8Array.from(payload.cells);
+  post(
+    {
+      type: 'heatmap',
+      payload: {
+        w: payload.w,
+        h: payload.h,
+        cellSize: payload.cellSize,
+        originX: payload.originX,
+        originY: payload.originY,
+        maxValue: payload.maxValue,
+        day: payload.day,
+        cells,
+      },
+    },
+    [cells.buffer],
+  );
+}
+
 function sendFrame(s: GameState): void {
   const routeColorOf: Record<number, string> = {};
   const buf = new Float32Array(s.vehicles.length * 6);
@@ -277,6 +300,7 @@ setInterval(() => {
       fieldsVersion++;
       sendFields(state);
     }
+    if (events.heatmap) sendHeatmap(events.heatmap);
   }
   if (state.flows !== lastFlowsRef) {
     lastFlowsRef = state.flows;

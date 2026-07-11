@@ -195,6 +195,8 @@ export interface GameState {
   traffic?: import('./transit/traffic').TrafficField;
   /** transient: OD pairs poorly served by transit, for the unserved-demand overlay (not saved) */
   unserved?: import('./transit/assignment').UnservedDesire[];
+  /** transient: ridership heatmap / OD / insight analytics (not saved; presentation only) */
+  analytics?: import('./analytics').AnalyticsState;
   /** transient: high-res OSM water/park masks for crisp rendering (real cities only) */
   osmWaterMask?: Uint8Array | undefined;
   osmParkMask?: Uint8Array | undefined;
