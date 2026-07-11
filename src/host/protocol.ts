@@ -74,8 +74,8 @@ export interface UiState {
   /** bumped when land-use fields changed (renderer re-bakes) */
   fieldsVersion: number;
   bankrupt: boolean;
-  /** non-bankruptcy failure reason, if any */
-  failed: 'bankrupt' | 'approval' | 'time' | null;
+  /** non-playing terminal reason, if any (additive: 'condition' is scenario-engine) */
+  failed: 'bankrupt' | 'approval' | 'time' | 'condition' | null;
   /** scenario calendar limit, if any */
   maxDay: number | null;
   /** era label for HUD, if any */
@@ -95,6 +95,11 @@ export interface UiState {
   overcrowdedRoutes?: number;
   /** cumulative lifetime ledger, once at least one day has closed */
   lifetime?: import('@core/types').LifetimeLedger;
+  /**
+   * Data-driven scenario progress (objectives / deadline / won|lost). Additive —
+   * the Rust native client may ignore this field and keep working unchanged.
+   */
+  scenarioState?: import('@core/scenario').ScenarioState;
 }
 
 export interface StaticCity {
@@ -139,7 +144,18 @@ export interface FrameSnapshot {
 }
 
 export type ToSim =
-  | { type: 'init'; seed: number; difficulty: Difficulty; size?: 'small' | 'medium' | 'large' | undefined; presetKey?: string | undefined; rules?: import('@core/scenarioRules').ScenarioRules | undefined }
+  | {
+      type: 'init';
+      seed: number;
+      difficulty: Difficulty;
+      size?: 'small' | 'medium' | 'large' | undefined;
+      presetKey?: string | undefined;
+      rules?: import('@core/scenarioRules').ScenarioRules | undefined;
+      /** data-driven scenario id from PLAYABLE_SCENARIOS (additive) */
+      scenarioId?: string | undefined;
+      /** inline scenario def (additive; overrides scenarioId when both set) */
+      scenario?: import('@core/scenario').ScenarioDef | undefined;
+    }
   | { type: 'loadSave'; json: string }
   | { type: 'requestSave' }
   | { type: 'setSpeed'; speed: number }

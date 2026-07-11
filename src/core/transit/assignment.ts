@@ -226,11 +226,13 @@ export function runAssignment(state: GameState): AssignmentOutput {
   const fareOf = (rid: number): number => routeById.get(rid)?.fare ?? 0;
 
   // citywide demand multiplier from active events (festivals, fuel spikes, …)
-  const demandMult = eventDemandMult(state.activeEvents);
+  // plus optional scenario global / per-district multipliers (data-driven beats)
+  const demandMult = eventDemandMult(state.activeEvents) * (state.globalDemandMult ?? 1);
   // destination choice weights per origin (gravity)
   for (const origin of districts) {
     if (origin.population < 50) continue;
-    const originTrips = origin.population * TRIP_RATE * demandMult;
+    const districtMult = state.districtDemandMult?.[origin.id] ?? 1;
+    const originTrips = origin.population * TRIP_RATE * demandMult * districtMult;
 
     const destWeights: { d: District; w: number }[] = [];
     for (const dest of districts) {

@@ -65,6 +65,12 @@ export function deserialize(json: string): GameState {
     })),
   };
   if (s.scenarioRules) restored.scenarioRules = s.scenarioRules;
+  if (s.scenario) restored.scenario = s.scenario;
+  if (s.scenarioWon !== undefined) restored.scenarioWon = s.scenarioWon;
+  if (s.firedScenarioEvents) restored.firedScenarioEvents = s.firedScenarioEvents;
+  if (s.districtDemandMult) restored.districtDemandMult = s.districtDemandMult;
+  if (s.globalDemandMult !== undefined) restored.globalDemandMult = s.globalDemandMult;
+  if (s.globalDemandMultDaysLeft !== undefined) restored.globalDemandMultDaysLeft = s.globalDemandMultDaysLeft;
   // migrate older saves missing rolling cash-flow history
   if (!restored.budget.netHistory) restored.budget.netHistory = [];
   return restored;
