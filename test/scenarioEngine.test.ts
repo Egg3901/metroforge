@@ -335,8 +335,9 @@ describe('playable scenario playthroughs', () => {
           expect(uiExtras(state).scenarioState?.loseReason).toBe('condition');
           return;
         }
-        // idle — no network — clock runs out
-        advanceDays(state, def.deadlineDays + 2);
+        // idle — no network — jump to the deadline window, then let the clock expire
+        state.tick = TICKS_PER_DAY * def.deadlineDays;
+        advanceDays(state, 3);
         expect(state.failed).toBe('time');
         expect(state.scenarioWon).toBeFalsy();
         const ui = uiExtras(state).scenarioState!;

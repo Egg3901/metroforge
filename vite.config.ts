@@ -23,6 +23,13 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  test: {
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
+    teardownTimeout: 60_000,
+    // long scenario playthroughs can stall the threads RPC; forks isolate better
+    pool: 'forks',
+  },
   preview: {
     allowedHosts: ['transit.ahousedividedgame.com', 'localhost', '127.0.0.1'],
   },
