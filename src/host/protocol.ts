@@ -100,6 +100,11 @@ export interface UiState {
    * the Rust native client may ignore this field and keep working unchanged.
    */
   scenarioState?: import('@core/scenario').ScenarioState;
+  /**
+   * Completing X unlocks Y — full progression manifest. Additive; older clients
+   * ignore unknown fields.
+   */
+  scenarioProgression?: import('@core/scenario').ScenarioProgressionManifest;
 }
 
 export interface StaticCity {

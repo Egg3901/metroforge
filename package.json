@@ -11,7 +11,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "grade": "vite-node scripts/grade.ts",
-    "server": "node --experimental-sqlite server/index.mjs"
+    "server": "node --experimental-sqlite server/index.mjs",
+    "validate-scenarios": "bun run scripts/validate-scenarios.ts"
   },
   "dependencies": {
     "pixi.js": "^8.6.6",
@@ -24,6 +25,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "ajv": "^8.20.0",
     "playwright-core": "^1.61.1",
     "shapefile": "^0.6.6",
     "tailwindcss": "^4.1.4",

@@ -5,6 +5,7 @@
 import { fareboxRecovery } from '../economy';
 import { TICKS_PER_DAY } from '../constants';
 import type { GameState } from '../types';
+import { requiresFor, unlocksFrom } from './progression';
 import type {
   CompareOp,
   ConditionLeaf,
@@ -24,6 +25,7 @@ export interface MetricSnapshot {
   cash: number;
   population: number;
   day: number;
+  overcrowdedRoutes: number;
 }
 
 export function readMetrics(state: GameState): MetricSnapshot {
@@ -36,6 +38,7 @@ export function readMetrics(state: GameState): MetricSnapshot {
     cash: state.budget.cash,
     population: state.stats.population,
     day: Math.floor(state.tick / TICKS_PER_DAY),
+    overcrowdedRoutes: state.routes.filter((r) => (r.crowding ?? 0) > 1).length,
   };
 }
 
@@ -112,6 +115,7 @@ const METRIC_LABEL: Record<ScenarioMetric, string> = {
   cash: 'Cash',
   population: 'Population',
   day: 'Day',
+  overcrowdedRoutes: 'Overcrowded routes',
 };
 
 function formatMetric(metric: ScenarioMetric, value: number): string {
@@ -165,6 +169,8 @@ export function buildScenarioState(def: ScenarioDef, state: GameState): Scenario
   const won = state.scenarioWon === true;
   const lost = state.failed !== null;
   const objectives = flattenObjectives(def.win, m);
+  const unlocks = unlocksFrom(def.id);
+  const requires = requiresFor(def.id);
   const snap: ScenarioState = {
     scenarioId: def.id,
     label: def.label,
@@ -177,6 +183,8 @@ export function buildScenarioState(def: ScenarioDef, state: GameState): Scenario
     outcome: won ? 'won' : lost ? 'lost' : 'playing',
   };
   if (lost) snap.loseReason = state.failed;
+  if (unlocks.length) snap.unlocks = unlocks;
+  if (requires.length) snap.requires = requires;
   return snap;
 }
 
