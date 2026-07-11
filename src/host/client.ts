@@ -5,12 +5,14 @@
 import type { ScenarioRules } from '@core/scenarioRules';
 import type { Command, CommandResult, Difficulty, TransitMode } from '@core/types';
 import type { DemandPayload, FieldsPayload, FrameSnapshot, FromSim, ReplayPayload, StaticCity, ToSim, TrafficPayload, UiState } from './protocol';
+import type { HeatmapPayload } from '@core/analytics';
 
 export interface SimEvents {
   onReady: (city: StaticCity) => void;
   onFields: (payload: FieldsPayload) => void;
   onTraffic: (payload: TrafficPayload) => void;
   onDemand: (payload: DemandPayload) => void;
+  onHeatmap: (payload: HeatmapPayload) => void;
   onFrame: (snapshot: FrameSnapshot) => void;
   onUi: (ui: UiState) => void;
   onToast: (message: string, tone: 'info' | 'warn' | 'good') => void;
@@ -41,6 +43,9 @@ export class SimClient {
           break;
         case 'demand':
           this.events.onDemand?.(msg.payload);
+          break;
+        case 'heatmap':
+          this.events.onHeatmap?.(msg.payload);
           break;
         case 'frame':
           this.events.onFrame?.(msg.snapshot);

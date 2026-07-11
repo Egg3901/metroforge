@@ -7,6 +7,12 @@ All notable changes to MetroForge are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **Simulation analytics layer** (`core/analytics.ts`): rolling 7-day per-cell
+  ridership heatmap (boardings + alightings), district OD matrix from the
+  gravity model, and insight metrics (worst underserved district, most
+  overloaded corridor, riders/vehicle-km, 400 m catchment coverage). Optional
+  quantized heatmap payload (`msgType=6`, ≤50 KB) every 7 sim-days; insights on
+  the UI envelope. Clients may ignore both. See `docs/ARCHITECTURE.md`.
 - **Sprite + texture asset pack** (`src/assets/`): tintable top-down vehicle
   sprites (bus / tram / metro / rail), geometric station icons, and tiling
   grain / water / park textures. Vehicles render as tinted Pixi sprites;

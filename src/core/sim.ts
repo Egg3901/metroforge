@@ -16,6 +16,7 @@ import {
 import { cellCenter } from './fields';
 import { dist } from './geometry';
 import { Rng } from './rng';
+import { commitAnalyticsDay, captureAssignmentAnalytics, type HeatmapPayload } from './analytics';
 import { runAssignment } from './transit/assignment';
 import { computeTraffic } from './transit/traffic';
 import { EVENT_DEFS, eventApprovalDelta, eventFareMult, rollEvent } from './events';
@@ -37,6 +38,8 @@ export interface TickEvents {
   messages: string[];
   /** themed toasts (city events) with a tone */
   toasts?: { message: string; tone: 'good' | 'warn' | 'info' }[];
+  /** optional ridership heatmap (every HEATMAP_EMIT_INTERVAL_DAYS); clients may ignore */
+  heatmap?: HeatmapPayload;
 }
 
 let bankruptDays = 0; // transient across ticks in a session; persisted via save hook below
@@ -69,6 +72,9 @@ export function simTick(state: GameState): TickEvents {
     updateApproval(state);
     checkUnlocks(state, events);
     if (day % GROWTH_INTERVAL_DAYS === 0) runGrowth(state);
+    // analytics day-close: rolling heatmap/OD + optional quantized payload
+    const ar = commitAnalyticsDay(state, day);
+    if (ar.emitHeatmap && ar.payload) events.heatmap = ar.payload;
     if (state.scenario) {
       const sr = evaluateScenarioDay(state, state.scenario, day);
       events.messages.push(...sr.messages);
@@ -279,6 +285,13 @@ export function refreshAssignment(state: GameState): void {
     s.alightings = (s.alightings ?? 0) * 0.5 + alight * 0.5;
   }
   state.unserved = result.unserved;
+  captureAssignmentAnalytics(
+    state,
+    result.stationBoardings,
+    result.stationAlightings,
+    result.flows,
+    result.carFlows,
+  );
   // coverage: fraction of population within walk radius of any station
   let covered = 0;
   let totalPop = 0;
