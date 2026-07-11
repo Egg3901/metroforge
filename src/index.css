@@ -1,17 +1,20 @@
 @import 'tailwindcss';
 
 @theme {
-  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-display: 'Fraunces', 'DM Sans', ui-serif, Georgia, serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, ui-sans-serif, sans-serif;
+  --font-display: 'Fraunces', ui-serif, Georgia, serif;
 }
 
 :root {
-  /* Shared with public/storefront.css */
-  --mf-bg: #0b0d10;
-  --mf-panel: #121620;
-  --mf-panel-border: #1f2530;
-  --mf-text: #f4f4f5;
-  --mf-text-dim: #9aa1ad;
+  /* Lakeside Games ground; shared with public/storefront.css */
+  --mf-bg: #0a0f14;
+  --mf-panel: #111b26;
+  --mf-panel-border: rgba(234, 240, 246, 0.08);
+  --mf-border-bright: rgba(234, 240, 246, 0.16);
+  --mf-text: #eaf0f6;
+  --mf-text-dim: rgba(234, 240, 246, 0.64);
+  /* MetroForge identity */
+  --mf-accent: #21c8a0;
   --mf-green: #7ef29a;
   --mf-blue: #54d0ff;
   --mf-orange: #ffb63d;

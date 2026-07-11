@@ -109,19 +109,26 @@ export function ToySplash({ onStart }: { onStart: () => void }): React.JSX.Eleme
           type="button"
           onClick={onStart}
           data-testid="toy-start"
-          className="mt-8 w-full max-w-xs py-3.5 rounded-xl bg-[var(--mf-orange)] hover:brightness-110 text-[var(--mf-bg)] font-bold text-base transition-[filter] toy-cta-in"
+          className="mt-8 w-full max-w-xs py-3.5 rounded-xl bg-[var(--mf-accent)] hover:brightness-110 text-[var(--mf-bg)] font-bold text-base transition-[filter] toy-cta-in"
         >
           Start the Cleveland toy
         </button>
         <a
           href={DOWNLOAD_HREF}
-          className="mt-4 text-sm text-[var(--mf-blue)] hover:underline underline-offset-2"
+          className="mt-4 text-sm text-[var(--mf-accent)] hover:underline underline-offset-2"
         >
           Or download the desktop game
         </a>
         <p className="text-[11px] text-[var(--mf-text-dim)]/70 mt-auto pt-10">
           Keys: S station · T track · R route · Enter finish · Space pause
         </p>
+        <a
+          href="https://lakesidegames.net"
+          className="mt-4 flex items-center gap-2 text-[11px] text-[var(--mf-text-dim)]/70 hover:text-[var(--mf-text-dim)] no-underline transition-colors"
+        >
+          <img src="./lakeside-mark.svg" alt="Lakeside Games mark" width={18} height={18} />
+          <span>by Lakeside Games</span>
+        </a>
       </div>
     </div>
   );
@@ -136,7 +143,7 @@ export function ToyTopBar(): React.JSX.Element {
     <div
       className="absolute top-0 inset-x-0 z-20 flex items-center gap-3 px-3 py-2 select-none"
       style={{
-        background: 'rgba(11, 13, 16, 0.88)',
+        background: 'rgba(10, 15, 20, 0.88)',
         backdropFilter: 'blur(10px)',
         borderBottom: '1px solid var(--mf-panel-border)',
       }}
@@ -164,7 +171,7 @@ export function ToyTopBar(): React.JSX.Element {
             onClick={() => setSpeed(s)}
             className={`min-w-[2.25rem] px-2 py-1 rounded-md text-xs font-semibold transition-colors ${
               speed === s
-                ? 'bg-[var(--mf-orange)] text-[var(--mf-bg)]'
+                ? 'bg-[var(--mf-accent)] text-[var(--mf-bg)]'
                 : 'bg-[var(--mf-panel)] text-[var(--mf-text-dim)] hover:text-[var(--mf-text)] border border-[var(--mf-panel-border)]'
             }`}
             title={s === 0 ? 'Pause' : `${s}× speed`}
@@ -197,7 +204,7 @@ export function ToyToolbar(): React.JSX.Element {
             compact ? 'p-2.5 justify-center' : 'px-2.5 py-2 w-full'
           } ${
             active
-              ? 'bg-[var(--mf-orange)] text-[var(--mf-bg)] ring-2 ring-[var(--mf-orange)]/40'
+              ? 'bg-[var(--mf-accent)] text-[var(--mf-bg)] ring-2 ring-[var(--mf-accent)]/40'
               : 'text-[var(--mf-text-dim)] hover:bg-[var(--mf-panel)] hover:text-[var(--mf-text)]'
           }`}
         >
@@ -220,7 +227,7 @@ export function ToyToolbar(): React.JSX.Element {
       >
         <div
           className="rounded-xl p-2 flex flex-col gap-0.5"
-          style={{ background: 'rgba(11,13,16,0.88)', border: '1px solid var(--mf-panel-border)', backdropFilter: 'blur(10px)' }}
+          style={{ background: 'rgba(10,15,20,0.88)', border: '1px solid var(--mf-panel-border)', backdropFilter: 'blur(10px)' }}
         >
           {buttons(false)}
           <div className="px-1 pt-1.5 empty:hidden">
@@ -231,13 +238,13 @@ export function ToyToolbar(): React.JSX.Element {
       <div className="md:hidden absolute bottom-0 inset-x-0 z-10 select-none pb-[env(safe-area-inset-bottom)]" data-testid="toy-toolbar-mobile">
         <div
           className="mx-2 mb-1 empty:hidden rounded-lg px-3 py-1.5"
-          style={{ background: 'rgba(11,13,16,0.92)', border: '1px solid var(--mf-panel-border)' }}
+          style={{ background: 'rgba(10,15,20,0.92)', border: '1px solid var(--mf-panel-border)' }}
         >
           <ToyHint />
         </div>
         <div
           className="px-2 py-1.5 flex items-center justify-center gap-1"
-          style={{ background: 'rgba(11,13,16,0.92)', borderTop: '1px solid var(--mf-panel-border)' }}
+          style={{ background: 'rgba(10,15,20,0.92)', borderTop: '1px solid var(--mf-panel-border)' }}
         >
           {buttons(true)}
         </div>
@@ -257,7 +264,7 @@ export function ToyDownloadBanner({ visible, onDismiss }: { visible: boolean; on
       <div
         className="rounded-xl px-4 py-3 flex items-start gap-3 shadow-lg shadow-black/40"
         style={{
-          background: 'rgba(18, 22, 32, 0.96)',
+          background: 'rgba(17, 27, 38, 0.96)',
           border: '1px solid var(--mf-panel-border)',
           backdropFilter: 'blur(12px)',
         }}
@@ -268,7 +275,7 @@ export function ToyDownloadBanner({ visible, onDismiss }: { visible: boolean; on
           <p className="text-xs text-[var(--mf-text-dim)] mt-0.5">{TOY_SUBLINE}</p>
           <a
             href={DOWNLOAD_HREF}
-            className="inline-flex mt-2.5 px-3.5 py-1.5 rounded-lg bg-[var(--mf-orange)] hover:brightness-110 text-[var(--mf-bg)] text-xs font-bold no-underline transition-[filter]"
+            className="inline-flex mt-2.5 px-3.5 py-1.5 rounded-lg bg-[var(--mf-accent)] hover:brightness-110 text-[var(--mf-bg)] text-xs font-bold no-underline transition-[filter]"
           >
             Download the desktop game
           </a>
@@ -307,7 +314,7 @@ export function ToyToasts(): React.JSX.Element {
                 ? 'border-[var(--mf-green)]'
                 : 'border-[var(--mf-panel-border)]'
           }`}
-          style={{ background: 'rgba(18, 22, 32, 0.95)' }}
+          style={{ background: 'rgba(17, 27, 38, 0.95)' }}
         >
           {t.message}
         </button>

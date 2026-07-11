@@ -18,7 +18,8 @@ export const TOY_SUBLINE = 'The full city runs in the desktop game.';
 export const TOY_BLURB =
   'One city, one loop: place stations, draw a route, watch the vehicles roll.';
 
-export const DOWNLOAD_HREF = '/download.html';
+/** Relative so it works at the domain root and under lakesidegames.net/games/metroforge/. */
+export const DOWNLOAD_HREF = 'download.html';
 
 /** Tools exposed in the toy toolbar (bus-only; no bulldoze / select clutter). */
 export const TOY_TOOLS = ['station', 'track', 'route'] as const;
