@@ -4,7 +4,7 @@
  */
 import { useEffect, useState } from 'react';
 import { MODES } from '@core/constants';
-import { Logo, Wordmark } from './brand';
+import { Logo } from './brand';
 import { BusIcon, PauseIcon, RouteIcon, StationIcon, TrackIcon } from './icons';
 import { useStore, type Tool } from './store';
 import {
@@ -94,7 +94,6 @@ export function ToySplash({ onStart }: { onStart: () => void }): React.JSX.Eleme
         <div className="toy-spoke-pulse mb-6">
           <Logo size={72} />
         </div>
-        <Wordmark size={32} />
         <h1 className="font-display text-2xl sm:text-3xl text-[var(--mf-text)] mt-6 leading-tight tracking-tight">
           {TOY_HEADLINE}
         </h1>
