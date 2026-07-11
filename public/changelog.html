@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>MetroForge — Changelog</title>
+    <meta name="description" content="Recent MetroForge releases: what shipped, what got fixed, what's next." />
+    <meta name="theme-color" content="#0b0d10" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%230b0d10'/%3E%3Cg stroke-width='4' stroke-linecap='round'%3E%3Cline x1='20' y1='20' x2='6' y2='6' stroke='%237ef29a'/%3E%3Cline x1='20' y1='20' x2='34' y2='6' stroke='%2354d0ff'/%3E%3Cline x1='20' y1='20' x2='34' y2='34' stroke='%23ffb63d'/%3E%3Cline x1='20' y1='20' x2='6' y2='34' stroke='%23ff5d6c'/%3E%3C/g%3E%3Ccircle cx='20' cy='20' r='6' fill='%230b0d10' stroke='%23f4f4f5' stroke-width='3'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/storefront.css" />
+  </head>
+  <body>
+    <nav class="nav">
+      <div class="nav-inner">
+        <a class="brand" href="/download.html">
+          <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+            <rect width="40" height="40" rx="9" fill="#0b0d10" />
+            <g stroke-width="4" stroke-linecap="round">
+              <line x1="20" y1="20" x2="6" y2="6" stroke="#7ef29a" />
+              <line x1="20" y1="20" x2="34" y2="6" stroke="#54d0ff" />
+              <line x1="20" y1="20" x2="34" y2="34" stroke="#ffb63d" />
+              <line x1="20" y1="20" x2="6" y2="34" stroke="#ff5d6c" />
+            </g>
+            <circle cx="20" cy="20" r="6" fill="#0b0d10" stroke="#f4f4f5" stroke-width="3" />
+          </svg>
+          MetroForge
+        </a>
+        <div class="nav-links">
+          <a href="/download.html#download">Download</a>
+          <a href="/changelog.html">Changelog</a>
+          <a href="/index.html">Play in browser</a>
+        </div>
+      </div>
+    </nav>
+
+    <main class="changelog-page wrap">
+      <h1>Changelog</h1>
+      <p class="sub">What shipped, straight from the releases.</p>
+
+      <div id="release-list">
+        <p class="loading">Loading recent releases…</p>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <a href="https://github.com/Egg3901/metroforge-native">Source on GitHub</a> · <a href="/download.html">Download</a> · <a href="/index.html">Play the web prototype</a>
+    </footer>
+
+    <script src="/releases.js"></script>
+    <script>
+      (function () {
+        var list = document.getElementById('release-list');
+
+        function escapeHtml(s) {
+          return s.replace(/[&<>]/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c];
+          });
+        }
+
+        // Minimal markdown-ish render: strip the auto-generated HTML comment,
+        // turn "* " bullets into <li>, headings into bold lines.
+        function renderBody(body) {
+          if (!body) return '<p>No notes for this release.</p>';
+          var cleaned = body.replace(/<!--[\s\S]*?-->/g, '').trim();
+          var lines = cleaned.split('\n');
+          var html = '';
+          var inList = false;
+          lines.forEach(function (line) {
+            var trimmed = line.trim();
+            if (!trimmed) return;
+            if (/^#{1,4}\s/.test(trimmed)) {
+              if (inList) { html += '</ul>'; inList = false; }
+              html += '<p><strong>' + escapeHtml(trimmed.replace(/^#{1,4}\s/, '')) + '</strong></p>';
+              return;
+            }
+            if (/^\*\s/.test(trimmed)) {
+              if (!inList) { html += '<ul>'; inList = true; }
+              html += '<li>' + escapeHtml(trimmed.replace(/^\*\s/, '')) + '</li>';
+              return;
+            }
+            if (inList) { html += '</ul>'; inList = false; }
+            html += '<p>' + escapeHtml(trimmed) + '</p>';
+          });
+          if (inList) html += '</ul>';
+          return html || '<p>No notes for this release.</p>';
+        }
+
+        function formatDate(iso) {
+          var d = new Date(iso);
+          return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+
+        MetroForgeReleases.fetchReleases(10).then(function (releases) {
+          if (!releases.length) throw new Error('no releases');
+          list.innerHTML = releases.map(function (r) {
+            var assets = MetroForgeReleases.platformAssets(r);
+            var links = ['<a href="' + r.html_url + '">Release notes</a>'];
+            if (assets.windows) links.push('<a href="' + assets.windows.browser_download_url + '">Windows</a>');
+            if (assets.macos) links.push('<a href="' + assets.macos.browser_download_url + '">macOS</a>');
+            if (assets.linux) links.push('<a href="' + assets.linux.browser_download_url + '">Linux</a>');
+            return (
+              '<article class="release">' +
+                '<div class="release-head">' +
+                  '<span class="tag">' + escapeHtml(r.tag_name) + '</span>' +
+                  '<span class="date">' + formatDate(r.published_at) + '</span>' +
+                '</div>' +
+                '<div class="release-body">' + renderBody(r.body) + '</div>' +
+                '<div class="release-links">' + links.join('') + '</div>' +
+              '</article>'
+            );
+          }).join('');
+        }).catch(function () {
+          list.innerHTML =
+            '<p class="load-error">Could not load releases right now. See the full history on ' +
+            '<a href="' + MetroForgeReleases.RELEASES_PAGE + '">GitHub</a>.</p>';
+        });
+      })();
+    </script>
+  </body>
+</html>
