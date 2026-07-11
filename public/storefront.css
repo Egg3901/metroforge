@@ -1,9 +1,17 @@
 :root {
-  --bg: #0b0d10;
-  --panel: #121620;
-  --panel-border: #1f2530;
-  --text: #f4f4f5;
-  --text-dim: #9aa1ad;
+  /* Lakeside Games ground + surfaces (see lakesidegames.net) */
+  --bg: #0a0f14;
+  --bg-2: #0d141c;
+  --panel: #111b26;
+  --panel-2: #16222e;
+  --panel-border: rgba(234, 240, 246, 0.08);
+  --border-bright: rgba(234, 240, 246, 0.16);
+  --text: #eaf0f6;
+  --text-dim: rgba(234, 240, 246, 0.64);
+  --text-faint: rgba(234, 240, 246, 0.38);
+  --shadow: 0 20px 44px -16px rgba(0, 0, 0, 0.6);
+  /* MetroForge identity */
+  --accent: #21c8a0;
   --green: #7ef29a;
   --blue: #54d0ff;
   --orange: #ffb63d;
@@ -15,10 +23,16 @@
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
   color: var(--text);
-  font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  line-height: 1.6;
   scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html, body { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 
 body {
@@ -34,6 +48,7 @@ h1, h2, h3 {
 }
 
 a { color: inherit; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 
 .wrap {
   max-width: 1080px;
@@ -41,12 +56,21 @@ a { color: inherit; }
   padding: 0 24px;
 }
 
+.kicker {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+
 /* nav */
 .nav {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(11, 13, 16, 0.85);
+  background: rgba(10, 15, 20, 0.86);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--panel-border);
 }
@@ -92,6 +116,8 @@ a { color: inherit; }
   text-align: center;
 }
 
+.hero .kicker { margin-bottom: 18px; }
+
 .hero-mark {
   width: 88px;
   height: 88px;
@@ -103,6 +129,7 @@ a { color: inherit; }
   font-size: clamp(2.2rem, 5vw, 3.6rem);
   line-height: 1.08;
   margin-bottom: 18px;
+  text-wrap: balance;
 }
 
 .hero .tagline {
@@ -175,8 +202,8 @@ a { color: inherit; }
 }
 
 .dl-card:hover {
-  border-color: var(--accent, var(--green));
-  transform: translateY(-2px);
+  border-color: var(--card-accent, var(--accent));
+  transform: translateY(-3px);
 }
 
 .dl-card .icon {
@@ -195,9 +222,9 @@ a { color: inherit; }
   color: var(--text-dim);
 }
 
-.dl-card.win { --accent: var(--blue); }
-.dl-card.mac { --accent: var(--green); }
-.dl-card.linux { --accent: var(--orange); }
+.dl-card.win { --card-accent: var(--blue); }
+.dl-card.mac { --card-accent: var(--green); }
+.dl-card.linux { --card-accent: var(--orange); }
 
 .dl-fallback {
   text-align: center;
@@ -207,7 +234,7 @@ a { color: inherit; }
 }
 
 .dl-fallback a {
-  color: var(--blue);
+  color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -243,32 +270,33 @@ a { color: inherit; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 12px 22px;
-  border-radius: 12px;
-  background: var(--orange);
+  padding: 11px 22px;
+  border-radius: 9px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
   color: var(--bg);
   font-weight: 700;
   text-decoration: none;
   transition: filter 0.15s ease;
 }
 
-.toy-play:hover { filter: brightness(1.08); }
+.toy-play:hover { filter: brightness(1.1); }
 
 .toy-dl {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 12px 22px;
-  border-radius: 12px;
-  border: 1px solid var(--panel-border);
-  background: var(--panel);
+  padding: 11px 22px;
+  border-radius: 9px;
+  border: 1px solid var(--border-bright);
+  background: transparent;
   color: var(--text);
   font-weight: 600;
   text-decoration: none;
   transition: border-color 0.15s ease;
 }
 
-.toy-dl:hover { border-color: var(--blue); }
+.toy-dl:hover { border-color: var(--accent); }
 
 /* features */
 .features {
@@ -365,7 +393,7 @@ a { color: inherit; }
   padding: 8px 12px;
   font-size: 0.8rem;
   color: var(--text);
-  background: linear-gradient(to top, rgba(11, 13, 16, 0.88), rgba(11, 13, 16, 0));
+  background: linear-gradient(to top, rgba(10, 15, 20, 0.88), rgba(10, 15, 20, 0));
 }
 
 .feature p {
@@ -452,6 +480,7 @@ a { color: inherit; }
 .release-head .date {
   color: var(--text-dim);
   font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .release-body {
@@ -467,7 +496,7 @@ a { color: inherit; }
 .release-links { margin-top: 14px; font-size: 0.85rem; }
 
 .release-links a {
-  color: var(--blue);
+  color: var(--accent);
   text-decoration: none;
   margin-right: 16px;
 }
@@ -495,3 +524,18 @@ a { color: inherit; }
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+.site-footer a:hover { color: var(--text); }
+
+.studio-credit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  color: var(--text-faint);
+  text-decoration: none !important;
+  font-size: 0.82rem;
+}
+
+.studio-credit img { width: 20px; height: 20px; display: block; }
+.studio-credit:hover { color: var(--text-dim); }

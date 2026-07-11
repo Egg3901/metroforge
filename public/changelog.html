@@ -3,36 +3,36 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>MetroForge — Changelog</title>
+    <title>MetroForge Changelog</title>
     <meta name="description" content="Recent MetroForge releases: what shipped, what got fixed, what's next." />
-    <meta name="theme-color" content="#0b0d10" />
+    <meta name="theme-color" content="#0a0f14" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%230b0d10'/%3E%3Cg stroke-width='4' stroke-linecap='round'%3E%3Cline x1='20' y1='20' x2='6' y2='6' stroke='%237ef29a'/%3E%3Cline x1='20' y1='20' x2='34' y2='6' stroke='%2354d0ff'/%3E%3Cline x1='20' y1='20' x2='34' y2='34' stroke='%23ffb63d'/%3E%3Cline x1='20' y1='20' x2='6' y2='34' stroke='%23ff5d6c'/%3E%3C/g%3E%3Ccircle cx='20' cy='20' r='6' fill='%230b0d10' stroke='%23f4f4f5' stroke-width='3'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="/storefront.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%230a0f14'/%3E%3Cg stroke-width='4' stroke-linecap='round'%3E%3Cline x1='20' y1='20' x2='6' y2='6' stroke='%237ef29a'/%3E%3Cline x1='20' y1='20' x2='34' y2='6' stroke='%2354d0ff'/%3E%3Cline x1='20' y1='20' x2='34' y2='34' stroke='%23ffb63d'/%3E%3Cline x1='20' y1='20' x2='6' y2='34' stroke='%23ff5d6c'/%3E%3C/g%3E%3Ccircle cx='20' cy='20' r='6' fill='%230a0f14' stroke='%23eaf0f6' stroke-width='3'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="storefront.css" />
   </head>
   <body>
     <nav class="nav">
       <div class="nav-inner">
-        <a class="brand" href="/download.html">
+        <a class="brand" href="download.html">
           <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-            <rect width="40" height="40" rx="9" fill="#0b0d10" />
+            <rect width="40" height="40" rx="9" fill="#0a0f14" />
             <g stroke-width="4" stroke-linecap="round">
               <line x1="20" y1="20" x2="6" y2="6" stroke="#7ef29a" />
               <line x1="20" y1="20" x2="34" y2="6" stroke="#54d0ff" />
               <line x1="20" y1="20" x2="34" y2="34" stroke="#ffb63d" />
               <line x1="20" y1="20" x2="6" y2="34" stroke="#ff5d6c" />
             </g>
-            <circle cx="20" cy="20" r="6" fill="#0b0d10" stroke="#f4f4f5" stroke-width="3" />
+            <circle cx="20" cy="20" r="6" fill="#0a0f14" stroke="#eaf0f6" stroke-width="3" />
           </svg>
           MetroForge
         </a>
         <div class="nav-links">
-          <a href="/download.html#download">Download</a>
-          <a href="/download.html#toy">Try the toy</a>
-          <a href="/changelog.html">Changelog</a>
-          <a href="/index.html">Play in browser</a>
+          <a href="download.html#download">Download</a>
+          <a href="download.html#toy">Try the toy</a>
+          <a href="changelog.html">Changelog</a>
+          <a href="./">Play in browser</a>
         </div>
       </div>
     </nav>
@@ -47,10 +47,14 @@
     </main>
 
     <footer class="site-footer">
-      <a href="https://github.com/Egg3901/metroforge-native">Source on GitHub</a> · <a href="/download.html">Download</a> · <a href="/index.html">Play the web prototype</a>
+      <div><a href="https://github.com/Egg3901/metroforge-native">Source on GitHub</a> · <a href="download.html">Download</a> · <a href="./">Play the web prototype</a></div>
+      <a class="studio-credit" href="https://lakesidegames.net">
+        <img src="lakeside-mark.svg" alt="Lakeside Games mark" width="20" height="20" />
+        <span>by Lakeside Games</span>
+      </a>
     </footer>
 
-    <script src="/releases.js"></script>
+    <script src="releases.js"></script>
     <script>
       (function () {
         var list = document.getElementById('release-list');
