@@ -306,6 +306,68 @@ a { color: inherit; }
   margin-bottom: 8px;
 }
 
+/* screenshots */
+.shots h2 {
+  text-align: center;
+  font-size: 1.7rem;
+  margin-bottom: 12px;
+}
+
+.shots .sub {
+  text-align: center;
+  color: var(--text-dim);
+  margin: 0 0 32px;
+}
+
+.shot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 860px) {
+  .shot-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .shot-grid { grid-template-columns: 1fr; }
+}
+
+.shot {
+  display: block;
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  line-height: 0;
+}
+
+.shot img {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+.shot:hover img {
+  transform: scale(1.04);
+  opacity: 0.92;
+}
+
+.shot .cap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: linear-gradient(to top, rgba(11, 13, 16, 0.88), rgba(11, 13, 16, 0));
+}
+
 .feature p {
   color: var(--text-dim);
   font-size: 0.92rem;
