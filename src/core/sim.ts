@@ -21,6 +21,8 @@ import { computeTraffic } from './transit/traffic';
 import { EVENT_DEFS, eventApprovalDelta, eventFareMult, rollEvent } from './events';
 import { APPROVAL_GRACE_DAYS, modeUnlockReady } from './scenarioRules';
 import { getRoutePath } from './transit/routePath';
+import { routeOperatingCost } from './economy';
+import { diurnalDemand, diurnalFactor } from './timeOfDay';
 import type { GameState, Station } from './types';
 
 export interface TickEvents {
@@ -111,6 +113,8 @@ function checkFailure(state: GameState, day: number, events: TickEvents): void {
 }
 
 function moveVehicles(state: GameState): void {
+  // one time-of-day factor per tick, shared by every vehicle's occupancy.
+  const tod = diurnalFactor(state.tick);
   for (const v of state.vehicles) {
     const route = state.routes.find((r) => r.id === v.routeId);
     if (!route) continue;
@@ -120,7 +124,7 @@ function moveVehicles(state: GameState): void {
     if (v.dwellRemaining > 0) {
       v.dwellRemaining -= 1;
       // still refresh occupancy while dwelling so bars stay live
-      v.occupancy = occupancyAt(route, v.along, path.length);
+      v.occupancy = occupancyAt(route, v.along, path.length, tod);
       continue;
     }
     const cfg = MODES[route.mode];
@@ -147,7 +151,7 @@ function moveVehicles(state: GameState): void {
       v.along = (v.along + step) % path.length;
       remaining -= step;
     }
-    v.occupancy = occupancyAt(route, v.along, path.length);
+    v.occupancy = occupancyAt(route, v.along, path.length, tod);
   }
 }
 
@@ -156,12 +160,13 @@ function occupancyAt(
   route: { crowding: number; segmentLoads: number[]; capacity: number; stationIds: number[]; vehicleCount: number },
   along: number,
   pathLen: number,
+  todFactor: number,
 ): number {
   if (route.vehicleCount <= 0) return 0;
   const segs = route.segmentLoads;
   const n = Math.max(1, route.stationIds.length - 1);
   if (!segs.length || pathLen <= 0 || route.capacity <= 0) {
-    return Math.min(1.5, route.crowding || 0);
+    return Math.min(1.5, (route.crowding || 0) * todFactor);
   }
   // Out-and-back: first half outbound segments, second half reverse.
   const half = pathLen / 2;
@@ -173,9 +178,11 @@ function occupancyAt(
     segIdx = Math.min(n - 1, n - 1 - Math.floor(t * n));
   }
   const load = segs[segIdx] ?? 0;
-  // segmentLoads are daily link trips; convert roughly to peak load / capacity
+  // segmentLoads are daily link trips; convert roughly to peak load / capacity,
+  // then scale by the live time-of-day factor so a vehicle at rush hour rides
+  // full while the same vehicle overnight rides near-empty.
   const peak = load * 0.14;
-  return Math.min(1.5, peak / route.capacity);
+  return Math.min(1.5, (peak / route.capacity) * todFactor);
 }
 
 function allStopDistances(
@@ -222,16 +229,9 @@ function nearestAlong(path: { points: { x: number; y: number }[]; cumulative: nu
   return out;
 }
 
-/** Time-of-day travel-demand multiplier: two rush peaks, a quiet night. ~0.35→1.9 */
-export function diurnalDemand(tick: number): number {
-  const hour = ((tick % TICKS_PER_DAY) / TICKS_PER_DAY) * 24;
-  const am = Math.exp(-((hour - 8) ** 2) / 6);
-  const pm = Math.exp(-((hour - 17.5) ** 2) / 8);
-  let f = 0.55 + 1.35 * (am + pm);
-  if (hour < 5.5) f *= 0.35;
-  else if (hour > 22) f *= 0.45;
-  return f;
-}
+/** Re-exported so existing importers of `@core/sim`'s diurnal curve keep
+ *  working; the implementation now lives in `./timeOfDay`. */
+export { diurnalDemand };
 
 export function refreshAssignment(state: GameState): void {
   const result = runAssignment(state);
@@ -293,8 +293,7 @@ function runDailyEconomy(state: GameState, _day: number, events: TickEvents): vo
   let maintenance = 0;
   for (const r of state.routes) {
     fares += r.dailyRevenue;
-    const cfg = MODES[r.mode];
-    operations += r.vehicleCount * (cfg.opsPerVehiclePerDay + cfg.maintPerVehiclePerDay);
+    operations += routeOperatingCost(r.mode, r.vehicleCount);
   }
   fares *= eventFareMult(state.activeEvents); // fare-free events waive the farebox
   for (const t of state.tracks) {
@@ -316,6 +315,16 @@ function runDailyEconomy(state: GameState, _day: number, events: TickEvents): vo
   if (!b.netHistory) b.netHistory = [];
   b.netHistory.push(net);
   if (b.netHistory.length > 7) b.netHistory.shift();
+
+  // cumulative lifetime ledger (optional; drives the economy summary UI). Built
+  // forward from the first day that closes; legacy saves start it fresh here.
+  const life = b.lifetime ?? (b.lifetime = { fares: 0, subsidy: 0, operations: 0, maintenance: 0, interest: 0, days: 0 });
+  life.fares += fares;
+  life.subsidy += subsidy;
+  life.operations += operations;
+  life.maintenance += maintenance;
+  life.interest += interest;
+  life.days += 1;
 
   if (fares > 0 && fares > operations + maintenance) {
     events.messages.push('Farebox recovery above 100% — the network pays for itself');

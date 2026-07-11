@@ -41,6 +41,13 @@ export interface UiRoute {
   load: number;
   crowding: number;
   segmentLoads: number[];
+  // ── optional, additive (v0.4.2 sim-depth); older clients ignore these ──
+  /** daily fleet running cost (operations + maintenance) */
+  operatingCost?: number;
+  /** dailyRevenue / operatingCost; >1 = line covers its own running cost */
+  farebox?: number;
+  /** crowding scaled by the current time-of-day factor (fullness right now) */
+  liveCrowding?: number;
 }
 
 export interface UiState {
@@ -75,6 +82,19 @@ export interface UiState {
   eraLabel: string | null;
   /** command count recorded this run (for replay submit) */
   commandCount: number;
+  // ── optional, additive (v0.4.2 sim-depth); older clients ignore these ──
+  /** hour of the game day in [0,24) */
+  hourOfDay?: number;
+  /** live time-of-day demand multiplier (daily mean = 1.0) */
+  demandFactor?: number;
+  /** farebox recovery for yesterday's ledger (fares / running costs) */
+  fareboxRecovery?: number;
+  /** per-district catchment population + jobs (building-derived), world coords */
+  districts?: { id: number; name: string; x: number; y: number; population: number; jobs: number }[];
+  /** count of routes over capacity (crowding > 1) */
+  overcrowdedRoutes?: number;
+  /** cumulative lifetime ledger, once at least one day has closed */
+  lifetime?: import('@core/types').LifetimeLedger;
 }
 
 export interface StaticCity {

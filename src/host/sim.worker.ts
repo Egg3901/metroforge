@@ -17,6 +17,7 @@ import type { GameState } from '@core/types';
 import type { ScenarioRules } from '@core/scenarioRules';
 import { AgentPool } from './agents';
 import type { FromSim, ToSim, UiState } from './protocol';
+import { routeExtras, todFactorOf, uiExtras } from './uiExtras';
 
 let state: GameState | null = null;
 let speed = 1; // game-seconds per real second (1x = 1); UI offers 1/10/30/120
@@ -99,7 +100,9 @@ function computeInsights(s: GameState): string[] {
 }
 
 function buildUi(s: GameState): UiState {
+  const tod = todFactorOf(s);
   return {
+    ...uiExtras(s),
     tick: s.tick,
     insights: computeInsights(s),
     day: Math.floor(s.tick / TICKS_PER_DAY) + 1,
@@ -150,6 +153,7 @@ function buildUi(s: GameState): UiState {
         load: r.load ?? 0,
         crowding: r.crowding ?? 0,
         segmentLoads: r.segmentLoads ? [...r.segmentLoads] : [],
+        ...routeExtras(r, tod),
       };
     }),
     activeEvents: s.activeEvents.map((a) => ({ id: a.id, name: EVENT_DEFS.find((e) => e.id === a.id)?.name ?? a.id, daysLeft: a.daysLeft })),
