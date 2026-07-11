@@ -139,6 +139,19 @@ export interface DayLedger {
   interest: number;
 }
 
+/** Cumulative since the run began — one entry per closed day summed. Optional so
+ *  legacy saves (which never wrote it) deserialize cleanly; it is rebuilt going
+ *  forward from the first day that closes after load. */
+export interface LifetimeLedger {
+  fares: number;
+  subsidy: number;
+  operations: number;
+  maintenance: number;
+  interest: number;
+  /** number of days accumulated into the totals above */
+  days: number;
+}
+
 export interface Budget {
   cash: number;
   loanBalance: number;
@@ -147,6 +160,8 @@ export interface Budget {
   lastDay: DayLedger;
   /** rolling net/day history (oldest → newest), capped at 7 */
   netHistory: number[];
+  /** cumulative lifetime totals (optional; absent in legacy saves) */
+  lifetime?: LifetimeLedger;
 }
 
 export interface CityStats {

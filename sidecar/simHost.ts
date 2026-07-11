@@ -31,6 +31,7 @@ import { getRoutePath } from '@core/transit/routePath';
 import type { Command, Difficulty, GameState, TrackGrade, TransitMode } from '@core/types';
 import { AgentPool } from '@host/agents';
 import type { ReplayPayload, UiState } from '@host/protocol';
+import { routeExtras, todFactorOf, uiExtras } from '@host/uiExtras';
 import { resolveBuildings, resolveCity, type BuildingsData } from './cities';
 import { binaryMessage, encodeFields, encodeFrame, encodeStaticBuildings, encodeStaticMask, encodeTraffic, jsonMessage, type Envelope, type OutMessage } from './wire';
 
@@ -306,7 +307,9 @@ export class SimHost {
   }
 
   private buildUi(s: GameState): UiState {
+    const tod = todFactorOf(s);
     return {
+      ...uiExtras(s),
       tick: s.tick,
       insights: this.computeInsights(s),
       day: Math.floor(s.tick / TICKS_PER_DAY) + 1,
@@ -357,6 +360,7 @@ export class SimHost {
           load: r.load ?? 0,
           crowding: r.crowding ?? 0,
           segmentLoads: r.segmentLoads ? [...r.segmentLoads] : [],
+          ...routeExtras(r, tod),
         };
       }),
       activeEvents: s.activeEvents.map((a) => ({ id: a.id, name: EVENT_DEFS.find((e) => e.id === a.id)?.name ?? a.id, daysLeft: a.daysLeft })),
