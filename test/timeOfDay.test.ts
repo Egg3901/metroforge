@@ -9,7 +9,7 @@ import { DIURNAL_MEAN, PEAK_HOUR_SHARE, diurnalDemand, diurnalFactor, hourOfDay 
 import { applyCommand } from '../src/core/commands';
 import { newGame } from '../src/core/newGame';
 import { setBankruptDays, simTick } from '../src/core/sim';
-import type { Command, GameState } from '../src/core/types';
+import type { Command } from '../src/core/types';
 
 const tickAtHour = (h: number): number => Math.round((h / 24) * TICKS_PER_DAY);
 

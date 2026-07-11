@@ -3,6 +3,8 @@ import { generateCity } from './city/generator';
 import { MAP_SIZE_METERS, presetByKey, type MapSize } from './city/presets';
 import type { OsmCityData } from './city/osmCity';
 import { Rng } from './rng';
+import type { ScenarioDef } from './scenario/types';
+import { rulesFromScenario } from './scenario/evaluate';
 import type { ScenarioRules } from './scenarioRules';
 import type { Difficulty, GameState, TransitMode } from './types';
 
@@ -13,6 +15,8 @@ export interface NewGameOptions {
   osm?: OsmCityData | undefined;
   /** era / challenge constraints applied at kickoff */
   rules?: ScenarioRules | undefined;
+  /** data-driven scenario (win/lose trees + events); implies rules when rules omitted */
+  scenario?: ScenarioDef | undefined;
 }
 
 export function newGame(seed: number, difficulty: Difficulty, options: NewGameOptions = {}): GameState {
@@ -28,7 +32,8 @@ export function newGame(seed: number, difficulty: Difficulty, options: NewGameOp
     population += d.population;
     jobs += d.jobs;
   }
-  const rules = options.rules;
+  const scenario = options.scenario;
+  const rules = options.rules ?? (scenario ? rulesFromScenario(scenario) : undefined);
   const startingModes: TransitMode[] = rules?.startingModes?.length ? [...rules.startingModes] : ['bus'];
   const state: GameState = {
     seed,
@@ -74,5 +79,10 @@ export function newGame(seed: number, difficulty: Difficulty, options: NewGameOp
     failed: null,
   };
   if (rules) state.scenarioRules = rules;
+  if (scenario) {
+    state.scenario = scenario;
+    state.scenarioWon = false;
+    state.firedScenarioEvents = [];
+  }
   return state;
 }

@@ -26,6 +26,7 @@ import { newGame } from '@core/newGame';
 import { deserialize, serialize, stateHash } from '@core/save';
 import { decodeB64Mask } from '@core/city/osmCity';
 import type { ScenarioRules } from '@core/scenarioRules';
+import { playableScenario, type ScenarioDef } from '@core/scenario';
 import { simTick } from '@core/sim';
 import { getRoutePath } from '@core/transit/routePath';
 import type { Command, Difficulty, GameState, TrackGrade, TransitMode } from '@core/types';
@@ -41,6 +42,8 @@ interface InitPayload {
   size?: MapSize | undefined;
   presetKey?: string | undefined;
   rules?: ScenarioRules | undefined;
+  scenarioId?: string | undefined;
+  scenario?: ScenarioDef | undefined;
 }
 
 export class SimHost {
@@ -48,6 +51,7 @@ export class SimHost {
   private speed = 1; // game-seconds per real second
   private fieldsVersion = 1;
   private bankrupt = false;
+  private won = false;
   private initMeta: { presetKey?: string; size?: MapSize } = {};
   /** Building-vector data for the current city, set from `presetKey` at
    *  `init` time. `loadSave` carries no `presetKey` (see host/protocol.ts),
@@ -66,6 +70,12 @@ export class SimHost {
     private readonly send: (msg: OutMessage) => void,
     private readonly onShutdown?: () => void,
   ) {}
+
+  private resolveScenario(p: InitPayload): ScenarioDef | undefined {
+    if (p.scenario) return p.scenario;
+    if (p.scenarioId) return playableScenario(p.scenarioId);
+    return undefined;
+  }
 
   /** Raises (or restores) the per-step tick cap; `--headless-speed` uses
    *  Infinity so a fast-forwarded smoke test can catch up in one step. */
@@ -140,13 +150,22 @@ export class SimHost {
 
   private handleInit(p: InitPayload): void {
     this.initMeta = {};
-    if (p.presetKey !== undefined) this.initMeta.presetKey = p.presetKey;
+    const scenario = this.resolveScenario(p);
+    const presetKey = p.presetKey ?? scenario?.cityKey;
+    if (presetKey !== undefined) this.initMeta.presetKey = presetKey;
     if (p.size !== undefined) this.initMeta.size = p.size;
-    const osm = resolveCity(p.presetKey);
-    const state = newGame(p.seed, p.difficulty, { size: p.size, presetKey: p.presetKey, osm, rules: p.rules });
+    const osm = resolveCity(presetKey);
+    const state = newGame(p.seed, p.difficulty, {
+      size: p.size,
+      presetKey,
+      osm,
+      rules: p.rules,
+      scenario,
+    });
     this.state = state;
-    this.buildings = resolveBuildings(p.presetKey);
+    this.buildings = resolveBuildings(presetKey);
     this.bankrupt = false;
+    this.won = false;
     this.fieldsVersion++;
     this.accumulator = 0;
     this.uiCountdown = 0;
@@ -186,6 +205,7 @@ export class SimHost {
       this.buildings = resolveBuildings(presetKey);
       if (presetKey !== undefined) this.initMeta.presetKey = presetKey;
       this.bankrupt = state.failed === 'bankrupt';
+      this.won = state.scenarioWon === true;
       this.fieldsVersion++;
       this.sendStatic(state);
       this.sendUi(state);
@@ -450,7 +470,7 @@ export class SimHost {
 
   private step(): void {
     const s = this.state;
-    if (!s || this.bankrupt || s.failed) return;
+    if (!s || this.bankrupt || s.failed || this.won || s.scenarioWon) return;
     this.accumulator += this.speed / 20;
     let ticksRun = 0;
     while (this.accumulator >= 1 && ticksRun < this.stepCap) {
@@ -460,6 +480,10 @@ export class SimHost {
       for (const m of events.messages) this.toast(m, 'info');
       for (const t of events.toasts ?? []) this.toast(t.message, t.tone);
       if (events.modeUnlocked) this.toast(`${events.modeUnlocked} unlocked!`, 'good');
+      if (events.won) {
+        this.won = true;
+        this.sendUi(s);
+      }
       if (events.bankrupt || events.failed) {
         this.bankrupt = events.bankrupt === true;
         const reason = events.bankrupt ? 'bankrupt' : events.failed;
@@ -468,7 +492,9 @@ export class SimHost {
             ? 'Approval collapsed — the board has fired you.'
             : reason === 'time'
               ? 'Time is up — the objective was not met.'
-              : 'Bankruptcy — the city has taken over your transit authority.';
+              : reason === 'condition'
+                ? 'Scenario failed — a lose condition was met.'
+                : 'Bankruptcy — the city has taken over your transit authority.';
         this.toast(copy, 'warn');
         this.sendUi(s);
       }

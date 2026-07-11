@@ -214,12 +214,28 @@ export interface GameState {
   nextEventDay: number;
   /** optional scenario constraints (era starts, daily challenge, …) */
   scenarioRules?: ScenarioRules;
+  /**
+   * Active data-driven scenario (win/lose trees + mid-run events). Optional so
+   * free-play / legacy era starts keep working; when set, the scenario engine
+   * evaluates each sim-day and hosts mirror `scenarioState` on the UI envelope.
+   */
+  scenario?: import('./scenario/types').ScenarioDef;
+  /** true once the scenario win tree is satisfied */
+  scenarioWon?: boolean;
+  /** ids of mid-run scenario events that have already fired */
+  firedScenarioEvents?: string[];
+  /** per-district travel-demand multipliers (scenario events); keys are district ids */
+  districtDemandMult?: Record<number, number>;
+  /** temporary citywide demand multiplier from a scenario event */
+  globalDemandMult?: number;
+  /** days remaining on globalDemandMult (ticked down each sim-day) */
+  globalDemandMultDaysLeft?: number;
   /** stamped command stream for replay / anti-cheat (also in save) */
   commandLog: { tick: number; cmd: Command }[];
   /** consecutive days at/below approvalFloor */
   lowApprovalDays: number;
   /** why the run ended, if it failed */
-  failed: 'bankrupt' | 'approval' | 'time' | null;
+  failed: 'bankrupt' | 'approval' | 'time' | 'condition' | null;
 }
 
 // ── Commands (the only mutation API) ────────────────────────────────────────

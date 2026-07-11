@@ -15,6 +15,7 @@ import { simTick } from '@core/sim';
 import { getRoutePath } from '@core/transit/routePath';
 import type { GameState } from '@core/types';
 import type { ScenarioRules } from '@core/scenarioRules';
+import { playableScenario, type ScenarioDef } from '@core/scenario';
 import { AgentPool } from './agents';
 import type { FromSim, ToSim, UiState } from './protocol';
 import { routeExtras, todFactorOf, uiExtras } from './uiExtras';
@@ -23,9 +24,16 @@ let state: GameState | null = null;
 let speed = 1; // game-seconds per real second (1x = 1); UI offers 1/10/30/120
 let fieldsVersion = 1;
 let bankrupt = false;
+let won = false;
 let initMeta: { presetKey?: string; size?: 'small' | 'medium' | 'large' } = {};
 const agents = new AgentPool();
 let lastFlowsRef: unknown = null;
+
+function resolveScenario(msg: Extract<ToSim, { type: 'init' }>): ScenarioDef | undefined {
+  if (msg.scenario) return msg.scenario;
+  if (msg.scenarioId) return playableScenario(msg.scenarioId);
+  return undefined;
+}
 
 const post = (msg: FromSim, transfer?: Transferable[]): void => {
   (self as unknown as Worker).postMessage(msg, transfer ?? []);
@@ -237,7 +245,7 @@ function sendFrame(s: GameState): void {
 let accumulator = 0;
 let uiCountdown = 0;
 setInterval(() => {
-  if (!state || bankrupt || state.failed) return;
+  if (!state || bankrupt || state.failed || won || state.scenarioWon) return;
   accumulator += speed / 20;
   let ticksRun = 0;
   while (accumulator >= 1 && ticksRun < 400) {
@@ -247,6 +255,10 @@ setInterval(() => {
     for (const m of events.messages) post({ type: 'toast', message: m, tone: 'info' });
     for (const t of events.toasts ?? []) post({ type: 'toast', message: t.message, tone: t.tone });
     if (events.modeUnlocked) post({ type: 'toast', message: `${events.modeUnlocked} unlocked!`, tone: 'good' });
+    if (events.won) {
+      won = true;
+      post({ type: 'ui', ui: buildUi(state) });
+    }
     if (events.bankrupt || events.failed) {
       bankrupt = events.bankrupt === true;
       const reason = events.bankrupt ? 'bankrupt' : events.failed;
@@ -255,7 +267,9 @@ setInterval(() => {
           ? 'Approval collapsed — the board has fired you.'
           : reason === 'time'
             ? 'Time is up — the objective was not met.'
-            : 'Bankruptcy — the city has taken over your transit authority.';
+            : reason === 'condition'
+              ? 'Scenario failed — a lose condition was met.'
+              : 'Bankruptcy — the city has taken over your transit authority.';
       post({ type: 'toast', message: copy, tone: 'warn' });
       post({ type: 'ui', ui: buildUi(state) });
     }
@@ -286,23 +300,31 @@ self.onmessage = (e: MessageEvent<ToSim>) => {
       initMeta = {};
       if (msg.presetKey !== undefined) initMeta.presetKey = msg.presetKey;
       if (msg.size !== undefined) initMeta.size = msg.size;
-      loadOsmCity(msg.presetKey).then((osm) => {
-        state = newGame(msg.seed, msg.difficulty, {
-          size: msg.size,
-          presetKey: msg.presetKey,
-          osm,
-          rules: msg.rules as ScenarioRules | undefined,
+      {
+        const scenario = resolveScenario(msg);
+        const presetKey = msg.presetKey ?? scenario?.cityKey;
+        if (presetKey !== undefined) initMeta.presetKey = presetKey;
+        loadOsmCity(presetKey).then((osm) => {
+          state = newGame(msg.seed, msg.difficulty, {
+            size: msg.size,
+            presetKey,
+            osm,
+            rules: msg.rules as ScenarioRules | undefined,
+            scenario,
+          });
+          bankrupt = false;
+          won = false;
+          fieldsVersion++;
+          sendStatic(state);
+          post({ type: 'ui', ui: buildUi(state) });
         });
-        bankrupt = false;
-        fieldsVersion++;
-        sendStatic(state);
-        post({ type: 'ui', ui: buildUi(state) });
-      });
+      }
       break;
     case 'loadSave':
       try {
         state = deserialize(msg.json);
         bankrupt = state.failed === 'bankrupt';
+        won = state.scenarioWon === true;
         fieldsVersion++;
         sendStatic(state);
         post({ type: 'ui', ui: buildUi(state) });

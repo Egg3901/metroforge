@@ -450,7 +450,9 @@ function FailOverlay(): React.JSX.Element | null {
       ? { title: 'Voted Out', body: 'Approval collapsed and the board fired you.' }
       : reason === 'time'
         ? { title: 'Time Up', body: 'The deadline passed before you met the objective.' }
-        : { title: 'Bankruptcy', body: 'The city has taken over your transit authority.' };
+        : reason === 'condition'
+          ? { title: 'Scenario Failed', body: 'A lose condition was met before you could finish.' }
+          : { title: 'Bankruptcy', body: 'The city has taken over your transit authority.' };
   return (
     <div className="absolute inset-0 z-40 bg-zinc-950/90 flex items-center justify-center px-6">
       <div className="text-center space-y-4 max-w-sm">

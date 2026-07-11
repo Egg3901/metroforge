@@ -20,6 +20,7 @@ import { runAssignment } from './transit/assignment';
 import { computeTraffic } from './transit/traffic';
 import { EVENT_DEFS, eventApprovalDelta, eventFareMult, rollEvent } from './events';
 import { APPROVAL_GRACE_DAYS, modeUnlockReady } from './scenarioRules';
+import { evaluateScenarioDay } from './scenario';
 import { getRoutePath } from './transit/routePath';
 import { routeOperatingCost } from './economy';
 import { diurnalDemand, diurnalFactor } from './timeOfDay';
@@ -28,8 +29,10 @@ import type { GameState, Station } from './types';
 export interface TickEvents {
   dayCompleted?: number;
   bankrupt?: boolean;
-  /** approval-floor or time-limit failure */
-  failed?: 'approval' | 'time';
+  /** approval-floor, time-limit, or scenario-condition failure */
+  failed?: 'approval' | 'time' | 'condition';
+  /** scenario win tree satisfied */
+  won?: boolean;
   modeUnlocked?: string;
   messages: string[];
   /** themed toasts (city events) with a tone */
@@ -47,7 +50,7 @@ export function setBankruptDays(d: number): void {
 
 export function simTick(state: GameState): TickEvents {
   const events: TickEvents = { messages: [] };
-  if (state.failed) return events;
+  if (state.failed || state.scenarioWon) return events;
   state.tick += 1;
 
   moveVehicles(state);
@@ -66,6 +69,16 @@ export function simTick(state: GameState): TickEvents {
     updateApproval(state);
     checkUnlocks(state, events);
     if (day % GROWTH_INTERVAL_DAYS === 0) runGrowth(state);
+    if (state.scenario) {
+      const sr = evaluateScenarioDay(state, state.scenario, day);
+      events.messages.push(...sr.messages);
+      if (sr.toasts.length) {
+        const toasts = events.toasts ?? (events.toasts = []);
+        toasts.push(...sr.toasts);
+      }
+      if (sr.won) events.won = true;
+      if (sr.lostCondition) events.failed = 'condition';
+    }
     checkFailure(state, day, events);
   }
 
@@ -104,6 +117,9 @@ function checkFailure(state: GameState, day: number, events: TickEvents): void {
     }
   }
   if (state.failed) return;
+
+  // scenario win short-circuits the calendar deadline
+  if (state.scenarioWon) return;
 
   if (rules?.maxDay !== undefined && day > rules.maxDay) {
     state.failed = 'time';
