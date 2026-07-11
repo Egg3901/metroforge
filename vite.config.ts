@@ -26,4 +26,8 @@ export default defineConfig({
   preview: {
     allowedHosts: ['transit.ahousedividedgame.com', 'localhost', '127.0.0.1'],
   },
+  test: {
+    // Core/sim suites stay on node; toy mount smoke opts into jsdom via pragma.
+    environment: 'node',
+  },
 });
