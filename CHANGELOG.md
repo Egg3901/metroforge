@@ -6,7 +6,19 @@ All notable changes to MetroForge are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+- **Web build is a Cleveland marketing toy.** `/` auto-scopes to one city,
+  bus-only tools (station / track / route), and a short coach. Campaign,
+  daily, auth, and multi-city free play are no longer mounted in the browser
+  shell — the full city runs in the desktop game. Shared storefront identity
+  (`#0b0d10`, spoke mark, DM Sans / Fraunces). After two minutes of play a
+  non-blocking download CTA appears. See `docs/WEB_TOY.md`.
+- **Download page** frames the toy: "Try the toy version in your browser —
+  the full city runs in the desktop game."
+
 ### Added
+- **jsdom mount smoke** (`test/toyMount.test.tsx`) for the toy splash → start
+  → CTA path (Pixi / Worker stubbed).
 - **Sprite + texture asset pack** (`src/assets/`): tintable top-down vehicle
   sprites (bus / tram / metro / rail), geometric station icons, and tiling
   grain / water / park textures. Vehicles render as tinted Pixi sprites;
