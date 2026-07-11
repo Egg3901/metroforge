@@ -7,6 +7,7 @@ import { MAX_HEADWAY, MODES, REFUND_FRACTION, ROUTE_COLORS, WATER_CROSSING_MULT 
 import { isWaterAt } from './fields';
 import { findRoadPath, nearestRoadPoint } from './transit/roadGraph';
 import { dist, makePolyline } from './geometry';
+import { segmentDayAverageSpeedMps, segmentDensity01 } from './transit/segmentSpeed';
 import type { Vec2 } from './geometry';
 import type { Command, CommandResult, GameState, TrackSegment, TransitMode } from './types';
 
@@ -323,15 +324,27 @@ export function routePathLength(state: GameState, routeId: number): number {
 }
 
 /** Seconds for one vehicle to complete a full out-and-back cycle: travel time
- *  plus a dwell at every stop it passes (each intermediate stop twice). */
+ *  plus a dwell at every stop it passes (each intermediate stop twice).
+ *  Travel time uses day-average grade-aware segment speeds so surface lines
+ *  that share the street get longer cycles (and thus worse headways) than
+ *  grade-separated twins. */
 export function routeCycleSeconds(state: GameState, routeId: number): number {
   const route = state.routes.find((r) => r.id === routeId);
   if (!route) return 0;
   const cfg = MODES[route.mode];
-  const len = routePathLength(state, routeId);
-  if (len <= 0) return 0;
+  let travel = 0;
+  for (const segId of route.segmentIds) {
+    const seg = state.tracks.find((t) => t.id === segId);
+    if (!seg) continue;
+    const dens = segmentDensity01(state.fields, seg);
+    const spd = segmentDayAverageSpeedMps(route.mode, seg.grade, dens);
+    if (spd > 0) travel += seg.polyline.length / spd;
+  }
+  if (travel <= 0) return 0;
+  // out-and-back
+  travel *= 2;
   const dwellStops = 2 * Math.max(1, route.stationIds.length - 1);
-  return len / cfg.speed + dwellStops * cfg.dwellSeconds;
+  return travel + dwellStops * cfg.dwellSeconds;
 }
 
 /** Headway is a CONSEQUENCE of fleet size: more vehicles on the same loop come

@@ -8,6 +8,7 @@ import {
   BANKRUPTCY_GRACE_DAYS,
   BASE_DAILY_SUBSIDY,
   CROWD_APPROVAL_THRESHOLD,
+  GRADE_MAINT_MULT,
   GROWTH_INTERVAL_DAYS,
   MODES,
   PEAK_HOUR_FRACTION,
@@ -18,13 +19,14 @@ import { dist } from './geometry';
 import { Rng } from './rng';
 import { runAssignment } from './transit/assignment';
 import { computeTraffic } from './transit/traffic';
+import { segmentDensity01, segmentEffectiveSpeedMps } from './transit/segmentSpeed';
 import { EVENT_DEFS, eventApprovalDelta, eventFareMult, rollEvent } from './events';
 import { APPROVAL_GRACE_DAYS, modeUnlockReady } from './scenarioRules';
 import { evaluateScenarioDay } from './scenario';
 import { getRoutePath } from './transit/routePath';
 import { routeOperatingCost } from './economy';
 import { diurnalDemand, diurnalFactor } from './timeOfDay';
-import type { GameState, Station } from './types';
+import type { GameState, Station, TrackSegment } from './types';
 
 export interface TickEvents {
   dayCompleted?: number;
@@ -131,6 +133,7 @@ function checkFailure(state: GameState, day: number, events: TickEvents): void {
 function moveVehicles(state: GameState): void {
   // one time-of-day factor per tick, shared by every vehicle's occupancy.
   const tod = diurnalFactor(state.tick);
+  const trackById = new Map(state.tracks.map((t) => [t.id, t]));
   for (const v of state.vehicles) {
     const route = state.routes.find((r) => r.id === v.routeId);
     if (!route) continue;
@@ -145,9 +148,13 @@ function moveVehicles(state: GameState): void {
     }
     const cfg = MODES[route.mode];
     const stops = allStopDistances(path, route, state);
-    // Advance segment-by-segment toward the next stop so we never overshoot
-    // a dwell point on long ticks / high speeds.
-    let remaining = cfg.speed;
+    const nSeg = Math.max(1, route.stationIds.length - 1);
+    // Surface grade uses the live diurnal congestion factor; elevated/tunnel
+    // keep full mode speed. Speed is taken from the segment the vehicle is on
+    // at the start of the tick (same per-tick step budget as before).
+    const segIdx = segmentIndexAt(v.along, path.length, nSeg);
+    const seg = trackById.get(route.segmentIds[segIdx] as number);
+    let remaining = segmentSpeedNow(route.mode, seg, tod, state);
     let guard = 0;
     while (remaining > 1e-6 && guard++ < 8) {
       const nextStop = nextStopAhead(stops, v.along, path.length);
@@ -171,6 +178,27 @@ function moveVehicles(state: GameState): void {
   }
 }
 
+function segmentSpeedNow(
+  mode: GameState['routes'][0]['mode'],
+  seg: TrackSegment | undefined,
+  tod: number,
+  state: GameState,
+): number {
+  if (!seg) return MODES[mode].speed;
+  const dens = segmentDensity01(state.fields, seg);
+  return segmentEffectiveSpeedMps(mode, seg.grade, tod, dens);
+}
+
+/** Out-and-back segment index for a position along the loop path. */
+function segmentIndexAt(along: number, pathLen: number, nSeg: number): number {
+  const n = Math.max(1, nSeg);
+  if (pathLen <= 0) return 0;
+  const half = pathLen / 2;
+  if (along <= half) return Math.min(n - 1, Math.floor((along / half) * n));
+  const t = (along - half) / half;
+  return Math.min(n - 1, n - 1 - Math.floor(t * n));
+}
+
 /** Per-vehicle load from the segment the vehicle is currently on (falls back to route crowding). */
 function occupancyAt(
   route: { crowding: number; segmentLoads: number[]; capacity: number; stationIds: number[]; vehicleCount: number },
@@ -184,15 +212,7 @@ function occupancyAt(
   if (!segs.length || pathLen <= 0 || route.capacity <= 0) {
     return Math.min(1.5, (route.crowding || 0) * todFactor);
   }
-  // Out-and-back: first half outbound segments, second half reverse.
-  const half = pathLen / 2;
-  let segIdx: number;
-  if (along <= half) {
-    segIdx = Math.min(n - 1, Math.floor((along / half) * n));
-  } else {
-    const t = (along - half) / half;
-    segIdx = Math.min(n - 1, n - 1 - Math.floor(t * n));
-  }
+  const segIdx = segmentIndexAt(along, pathLen, n);
   const load = segs[segIdx] ?? 0;
   // segmentLoads are daily link trips; convert roughly to peak load / capacity,
   // then scale by the live time-of-day factor so a vehicle at rush hour rides
@@ -313,7 +333,7 @@ function runDailyEconomy(state: GameState, _day: number, events: TickEvents): vo
   }
   fares *= eventFareMult(state.activeEvents); // fare-free events waive the farebox
   for (const t of state.tracks) {
-    maintenance += (t.polyline.length / 1000) * MODES[t.mode].maintPerKmPerDay;
+    maintenance += (t.polyline.length / 1000) * MODES[t.mode].maintPerKmPerDay * GRADE_MAINT_MULT[t.grade];
   }
   for (const s of state.stations) {
     maintenance += MODES[s.mode].stationCost * 0.0002 * s.level;
