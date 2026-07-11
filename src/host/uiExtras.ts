@@ -8,7 +8,12 @@
  * `ui` envelope), so adding them does not bump the protocol version.
  */
 import { fareboxRecovery, routeOperatingCost } from '@core/economy';
-import { buildScenarioState, type ScenarioState } from '@core/scenario';
+import {
+  buildScenarioState,
+  SCENARIO_PROGRESSION,
+  type ScenarioProgressionManifest,
+  type ScenarioState,
+} from '@core/scenario';
 import { diurnalFactor, hourOfDay } from '@core/timeOfDay';
 import type { AnalyticsInsights } from '@core/analytics';
 import type { GameState, LifetimeLedger, RouteDef } from '@core/types';
@@ -57,6 +62,12 @@ export interface UiStateExtras {
   lifetime?: LifetimeLedger;
   /** data-driven scenario progress; omitted when no scenario is active */
   scenarioState?: ScenarioState;
+  /**
+   * Full scenario progression graph (completing X unlocks Y). Additive —
+   * always emitted so pickers / native clients can gate content without a
+   * separate catalog fetch. Older clients ignore the field.
+   */
+  scenarioProgression?: ScenarioProgressionManifest;
   /** spatial analytics insights; omitted until the first analytics day closes */
   analytics?: AnalyticsInsights;
 }
@@ -81,6 +92,7 @@ export function uiExtras(s: GameState): UiStateExtras {
       jobs: d.jobs,
     })),
     overcrowdedRoutes: s.routes.filter((r) => (r.crowding ?? 0) > 1).length,
+    scenarioProgression: SCENARIO_PROGRESSION,
   };
   if (s.budget.lifetime) extras.lifetime = s.budget.lifetime;
   if (s.scenario) extras.scenarioState = buildScenarioState(s.scenario, s);

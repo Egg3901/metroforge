@@ -13,7 +13,9 @@ export type ScenarioMetric =
   | 'approval'
   | 'cash'
   | 'population'
-  | 'day';
+  | 'day'
+  /** count of routes with crowding > 1 */
+  | 'overcrowdedRoutes';
 
 export type CompareOp = '>=' | '>' | '<=' | '<' | '==';
 
@@ -124,4 +126,10 @@ export interface ScenarioState {
   lost: boolean;
   outcome: 'playing' | 'won' | 'lost';
   loseReason?: 'bankrupt' | 'approval' | 'time' | 'condition' | null;
+  /**
+   * Additive progression edges from the content manifest.
+   * Completing this scenario unlocks these ids; `requires` lists OR-prereqs.
+   */
+  unlocks?: string[];
+  requires?: string[];
 }

@@ -1,7 +1,7 @@
-# Lean self-hosted CI (Woodpecker on Hetzner, workflows.ahousedividedgame.com).
-# Matches the a-house-divided repo's pipeline: local/exec backend, no
+# Lean self-hosted CI (Woodpecker on Hetzner, workflows.[REDACTED]game.com).
+# Matches the [REDACTED] repo's pipeline: local/exec backend, no
 # host-path `volumes:` mounts (those need repo "trust" and were flaky here in
-# practice — see a-house-divided's .woodpecker.yml for the incident). No
+# practice — see [REDACTED]'s .woodpecker.yml for the incident). No
 # `build`/`vite build` step — typecheck + test gate correctness; the actual
 # build happens at deploy time.
 
@@ -24,6 +24,18 @@ steps:
   typecheck:
     image: sh
     commands: [npm run typecheck]
+    depends_on: [install]
+
+  validate-scenarios:
+    image: sh
+    commands:
+      - |
+        if ! command -v bun >/dev/null 2>&1; then
+          curl -fsSL https://bun.sh/install | bash
+          export BUN_INSTALL="$HOME/.bun"
+          export PATH="$BUN_INSTALL/bin:$PATH"
+        fi
+        bun run validate-scenarios
     depends_on: [install]
 
   test:

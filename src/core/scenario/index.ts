@@ -37,6 +37,15 @@ export {
   playableScenario,
 } from './catalog';
 
+export {
+  SCENARIO_PROGRESSION,
+  availableScenarios,
+  isProgressionKnown,
+  requiresFor,
+  unlocksFrom,
+} from './progression';
+export type { ScenarioProgressionManifest } from './progression';
+
 import { evalCondition, readMetrics } from './evaluate';
 import { applyScenarioEvents, tickGlobalDemandMult } from './events';
 import type { ScenarioDef } from './types';

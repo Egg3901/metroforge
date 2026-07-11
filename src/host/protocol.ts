@@ -101,6 +101,10 @@ export interface UiState {
    */
   scenarioState?: import('@core/scenario').ScenarioState;
   /**
+   * Completing X unlocks Y — full progression manifest. Additive; older clients
+   * ignore unknown fields.
+   */
+  scenarioProgression?: import('@core/scenario').ScenarioProgressionManifest;
    * Spatial analytics insights (underserved district, overloaded corridor,
    * network efficiency, 400m catchment). Additive — older clients ignore.
    */
