@@ -40,7 +40,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tool: 'select',
     overlay: 'density',
     body: () =>
-      'Amber density marks where people live and work. Your first line should serve the bright spots — that is where riders come from.',
+      'Amber density marks where people live and work. Your first line should serve the bright spots. That is where riders come from.',
     action: () => 'Scan the map, then continue',
     progress: () => 'Density overlay on',
     done: () => false,
@@ -62,7 +62,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tool: 'track',
     overlay: 'none',
     body: () =>
-      'Track tool is ready. Click the first station, then the second. The path follows the streets — that is your infrastructure.',
+      'Track tool is ready. Click the first station, then the second. The path follows the streets. That is your infrastructure.',
     action: () => 'Click station A, then station B',
     progress: (ui) => `${ui?.tracks.length ?? 0} / 1 track`,
     done: (ui) => (ui?.tracks.length ?? 0) >= 1,
@@ -84,7 +84,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tool: 'select',
     overlay: 'none',
     body: () =>
-      'Time is sped up. Wait for the first daily trips — dots will stream along your line. Crowding and Gaps overlays tell you where to build next.',
+      'Time is sped up. Wait for the first daily trips. Dots will stream along your line. Crowding and Gaps overlays tell you where to build next.',
     action: () => 'Let the clock run',
     progress: (ui) => {
       const n = Math.round(ui?.dailyTransitTrips ?? 0);
