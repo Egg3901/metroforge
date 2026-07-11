@@ -105,6 +105,7 @@ export interface UiState {
    * ignore unknown fields.
    */
   scenarioProgression?: import('@core/scenario').ScenarioProgressionManifest;
+  /**
    * Spatial analytics insights (underserved district, overloaded corridor,
    * network efficiency, 400m catchment). Additive — older clients ignore.
    */

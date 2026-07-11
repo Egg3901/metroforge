@@ -19,9 +19,12 @@ const TRIP_RATE = 0.9; // transit-relevant trips per resident per day
 const DEST_KERNEL = 3600; // meters, destination-choice distance decay
 const MAX_DESTS_PER_ORIGIN = 14;
 const MAX_TRANSIT_COST_MIN = 90; // beyond this nobody rides
-const UNSERVED_SHARE_MAX = 0.35; // pairs served worse than this are "unserved"
-const MIN_UNSERVED_TRIPS = 40; // ignore trickles so the overlay shows real gaps
-const MAX_UNSERVED_LINES = 60; // keep the overlay legible
+/** pairs served worse than this transit share are "unserved" (overlay/gaps). */
+export const UNSERVED_SHARE_MAX = 0.35;
+/** ignore trickles so the overlay shows real gaps. */
+export const MIN_UNSERVED_TRIPS = 40;
+/** keep the overlay legible. */
+export const MAX_UNSERVED_LINES = 60;
 
 interface NodeEdge {
   to: number;
@@ -376,4 +379,51 @@ export function runAssignment(state: GameState): AssignmentOutput {
   unserved.length = Math.min(unserved.length, MAX_UNSERVED_LINES);
 
   return { flows, carFlows, routeRidership, routeRevenue, stationBoardings, stationAlightings, segmentLoad, unserved, dailyTransitTrips, dailyCarTrips };
+}
+
+/** One origin→destination pair of the station-independent baseline demand field. */
+export interface BaselineDemandPair {
+  originDistrict: number;
+  destDistrict: number;
+  /** full gravity daily trip potential for the pair (jobs × distance decay). */
+  trips: number;
+}
+
+/**
+ * Station-independent baseline gravity demand over ALL qualifying district
+ * pairs. Pure/read-only: it writes nothing to `state` and is never fed back
+ * into the sim (analytics/overlay use only), so it is safe outside the
+ * determinism hash.
+ *
+ * Unlike {@link runAssignment}, this does NOT cap destinations at
+ * MAX_DESTS_PER_ORIGIN and does NOT require a transit path to exist — it is the
+ * raw demand potential from population × jobs / distance decay, so demand shows
+ * everywhere it exists, not just near stations the router enumerated.
+ */
+export function computeBaselineDemandOd(state: GameState): BaselineDemandPair[] {
+  const { districts } = state;
+  const demandMult = eventDemandMult(state.activeEvents) * (state.globalDemandMult ?? 1);
+  const out: BaselineDemandPair[] = [];
+  for (const origin of districts) {
+    if (origin.population < 50) continue;
+    const districtMult = state.districtDemandMult?.[origin.id] ?? 1;
+    const originTrips = origin.population * TRIP_RATE * demandMult * districtMult;
+
+    const destWeights: { d: District; w: number }[] = [];
+    let wSum = 0;
+    for (const dest of districts) {
+      if (dest.id === origin.id || dest.jobs < 20) continue;
+      const dd = dist(origin.centroid, dest.centroid);
+      const w = dest.jobs * Math.exp(-dd / DEST_KERNEL);
+      destWeights.push({ d: dest, w });
+      wSum += w;
+    }
+    if (wSum <= 0) continue;
+    for (const { d: dest, w } of destWeights) {
+      const pairTrips = (originTrips * w) / wSum;
+      if (pairTrips <= 0) continue;
+      out.push({ originDistrict: origin.id, destDistrict: dest.id, trips: pairTrips });
+    }
+  }
+  return out;
 }
