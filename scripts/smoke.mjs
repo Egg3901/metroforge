@@ -9,9 +9,8 @@ page.on('console', m => { if (m.type() === 'error') console.log('PAGE ERROR:', m
 page.on('pageerror', e => console.log('PAGE EXCEPTION:', e.message));
 await page.goto('http://localhost:4180');
 await page.waitForTimeout(1000);
-// set fixed seed and start
-await page.fill('input', '31337');
-await page.click('text=Found a Transit Authority');
+// Cleveland toy splash → start
+await page.click('[data-testid="toy-start"]');
 await page.waitForTimeout(2500);
 await page.screenshot({ path: `${SHOT}/01-city.png` });
 // place 3 bus stations near center via canvas clicks
@@ -40,6 +39,6 @@ await page.screenshot({ path: `${SHOT}/03-route.png` });
 await page.click('text=60×');
 await page.waitForTimeout(8000);
 await page.screenshot({ path: `${SHOT}/04-running.png` });
-const hud = await page.locator('div.absolute.top-0').innerText();
+const hud = await page.locator('[data-testid="toy-topbar"]').innerText();
 console.log('HUD:', hud.replace(/\n/g, ' | '));
 await browser.close();

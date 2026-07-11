@@ -9,6 +9,7 @@ import { enqueueScore, fetchCampaign, flushScoreQueue, loadAccount, pushCampaign
 import { sfxFail, sfxGood, unlockAudio } from './audio';
 import { loadTutorialDone, markTutorialDone, TUTORIAL_STEPS } from './tutorial';
 import { getSettings } from './settings';
+import { TOY_CITY_KEY, TOY_SEED } from './teaser';
 
 export type Tool = 'select' | 'station' | 'track' | 'route' | 'bulldoze';
 export type OverlayMode = 'none' | 'density' | 'value' | 'coverage' | 'nimby' | 'traffic' | 'unserved';
@@ -31,6 +32,8 @@ interface AppState {
   mode: TransitMode;
   speed: number;
   started: boolean;
+  /** Web storefront toy (Cleveland-only scoped UI). */
+  toyMode: boolean;
   trackFrom: number | null;
   trackWaypoints: { x: number; y: number }[];
   trackCostEstimate: number | null;
@@ -63,6 +66,8 @@ interface AppState {
   setSpeed: (s: number) => void;
   setUi: (ui: UiState) => void;
   start: (seed: number, difficulty: 'easy' | 'normal' | 'hard', opts?: { size?: 'small' | 'medium' | 'large' | undefined; presetKey?: string | undefined }) => void;
+  /** Cleveland web toy — bus-locked, coach on, fixed seed. */
+  startToy: () => void;
   startScenario: (s: Scenario, seed: number) => void;
   pushToast: (message: string, tone: Toast['tone']) => void;
   dismissToast: (id: number) => void;
@@ -174,6 +179,7 @@ export const useStore = create<AppState>((set, get) => {
     mode: 'bus',
     speed: 1,
     started: false,
+    toyMode: false,
     trackFrom: null,
     trackWaypoints: [],
     trackCostEstimate: null,
@@ -234,7 +240,10 @@ export const useStore = create<AppState>((set, get) => {
     skipTutorial: () => {
       markTutorialDone();
       set({ tutorialActive: false, tutorialStep: 0, overlay: 'none' });
-      get().pushToast('Tutorial skipped — reopen anytime from Home', 'info');
+      get().pushToast(
+        get().toyMode ? 'Coach skipped — S station, T track, R route' : 'Tutorial skipped — reopen anytime from Home',
+        'info',
+      );
     },
 
     setTool: (tool) => set({ tool, trackFrom: null, trackWaypoints: [], routeStops: [], trackCostEstimate: null }),
@@ -253,6 +262,7 @@ export const useStore = create<AppState>((set, get) => {
       const pause = getSettings().pauseOnStart;
       set({
         started: true,
+        toyMode: false,
         completedGoals: [],
         scenario: null,
         won: false,
@@ -269,6 +279,33 @@ export const useStore = create<AppState>((set, get) => {
       });
       if (pause) client.setSpeed(0);
     },
+    startToy: () => {
+      scorePosted = false;
+      lastFailed = null;
+      unlockAudio();
+      client.init(TOY_SEED, 'easy', {
+        presetKey: TOY_CITY_KEY,
+        rules: { startingModes: ['bus'], lockModes: true },
+      });
+      set({
+        started: true,
+        toyMode: true,
+        completedGoals: [],
+        scenario: null,
+        won: false,
+        runStars: 0,
+        runSeed: TOY_SEED,
+        tutorialActive: true,
+        tutorialStep: 0,
+        overlay: 'density',
+        tool: 'select',
+        mode: 'bus',
+        speed: 1,
+        goalBanners: [],
+        shortcutsOpen: false,
+        panel: 'none',
+      });
+    },
     startScenario: (s, seed) => {
       scorePosted = false;
       lastFailed = null;
@@ -279,6 +316,7 @@ export const useStore = create<AppState>((set, get) => {
       const pause = getSettings().pauseOnStart;
       set({
         started: true,
+        toyMode: false,
         completedGoals: [],
         scenario: s,
         won: false,

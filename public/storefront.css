@@ -212,6 +212,64 @@ a { color: inherit; }
   text-underline-offset: 2px;
 }
 
+/* browser toy teaser */
+.toy {
+  padding: 64px 0;
+  border-top: 1px solid var(--panel-border);
+  text-align: center;
+}
+
+.toy h2 {
+  font-size: 1.7rem;
+  margin-bottom: 8px;
+}
+
+.toy .sub {
+  color: var(--text-dim);
+  margin: 0 auto 28px;
+  max-width: 560px;
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+
+.toy-cta-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.toy-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 22px;
+  border-radius: 12px;
+  background: var(--orange);
+  color: var(--bg);
+  font-weight: 700;
+  text-decoration: none;
+  transition: filter 0.15s ease;
+}
+
+.toy-play:hover { filter: brightness(1.08); }
+
+.toy-dl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 22px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+
+.toy-dl:hover { border-color: var(--blue); }
+
 /* features */
 .features {
   padding: 64px 0;
