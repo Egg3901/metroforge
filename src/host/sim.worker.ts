@@ -19,7 +19,7 @@ import { playableScenario, type ScenarioDef } from '@core/scenario';
 import { AgentPool } from './agents';
 import type { FromSim, ToSim, UiState } from './protocol';
 import { routeExtras, todFactorOf, uiExtras } from './uiExtras';
-import { analyticsInsightLines } from '@core/analytics';
+import { analyticsInsightLines, buildDemandOverlay } from '@core/analytics';
 import type { HeatmapPayload } from '@core/analytics';
 
 let state: GameState | null = null;
@@ -199,7 +199,10 @@ function sendTraffic(s: GameState): void {
 }
 
 function sendDemand(s: GameState): void {
-  const lines = s.unserved ?? [];
+  // Overlay is built from the station-independent baseline gravity field
+  // (analytics layer), not `s.unserved`, so demand/gaps show everywhere demand
+  // exists — not only near stations the assignment router enumerated (#20).
+  const lines = buildDemandOverlay(s);
   let maxWeight = 0;
   for (const l of lines) if (l.weight > maxWeight) maxWeight = l.weight;
   post({ type: 'demand', payload: { lines: lines.map((l) => ({ ...l })), maxWeight } });

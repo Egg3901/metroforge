@@ -40,7 +40,14 @@
  */
 import { MODES, TICKS_PER_DAY } from './constants';
 import { cellIndexAt } from './fields';
-import type { CarFlow } from './transit/assignment';
+import {
+  computeBaselineDemandOd,
+  MAX_UNSERVED_LINES,
+  MIN_UNSERVED_TRIPS,
+  UNSERVED_SHARE_MAX,
+  type CarFlow,
+  type UnservedDesire,
+} from './transit/assignment';
 import type { District, FieldGrid, FlowResult, GameState, RouteDef, Station } from './types';
 
 /** Rolling temporal window for heatmap + OD smoothing (sim-days). */
@@ -208,6 +215,51 @@ export function buildOdTotals(flows: readonly FlowResult[], carFlows: readonly C
  */
 export function buildOdMatrixExact(flows: readonly FlowResult[], carFlows: readonly CarFlow[]): Map<string, number> {
   return buildOdTotals(flows, carFlows);
+}
+
+/**
+ * Build the demand/gaps overlay from the station-independent baseline gravity
+ * field rather than from `state.unserved` (which only contains pairs the
+ * assignment router enumerated near existing stations, making demand look like
+ * it clusters at stations).
+ *
+ * For each qualifying district pair, gap weight = baselineDemand × (1 −
+ * servedShare), where `servedShare` is the transit mode share the existing
+ * assignment achieved on that pair (`transitTrips / baselineDemand`, capped at
+ * 1). Pairs the router never enumerated simply have served = 0, so their full
+ * demand surfaces as an unmet gap — demand shows everywhere it exists, gaps
+ * show everywhere demand goes unmet, not just around stations.
+ *
+ * Pure/read-only: derives from `state.flows` + `state.districts` and writes
+ * nothing back, so it stays out of the determinism hash. The top-N by weight
+ * trim keeps the payload bounded (MAX_UNSERVED_LINES lines, well under budget).
+ */
+export function buildDemandOverlay(state: GameState): UnservedDesire[] {
+  const baseline = computeBaselineDemandOd(state);
+  const served = new Map<string, number>();
+  for (const f of state.flows) {
+    const k = `${f.originDistrict}:${f.destDistrict}`;
+    served.set(k, (served.get(k) ?? 0) + f.transitTrips);
+  }
+  const districtById = new Map(state.districts.map((d) => [d.id, d]));
+  const lines: UnservedDesire[] = [];
+  for (const b of baseline) {
+    if (b.trips < MIN_UNSERVED_TRIPS) continue;
+    const transit = served.get(`${b.originDistrict}:${b.destDistrict}`) ?? 0;
+    const share = Math.min(1, transit / b.trips);
+    if (share >= UNSERVED_SHARE_MAX) continue;
+    const o = districtById.get(b.originDistrict);
+    const d = districtById.get(b.destDistrict);
+    if (!o || !d) continue;
+    lines.push({
+      x1: o.centroid.x, y1: o.centroid.y,
+      x2: d.centroid.x, y2: d.centroid.y,
+      weight: b.trips * (1 - share), share,
+    });
+  }
+  lines.sort((a, b) => b.weight - a.weight);
+  lines.length = Math.min(lines.length, MAX_UNSERVED_LINES);
+  return lines;
 }
 
 /** Mean of the rolling day grids (zeros if empty). */

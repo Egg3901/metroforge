@@ -10,6 +10,7 @@ import {
   HEATMAP_HEADER_BYTES,
   HEATMAP_MSG_TYPE,
   HEATMAP_VERSION,
+  buildDemandOverlay,
   buildHeatmapPayload,
   buildOdMatrixExact,
   captureAssignmentAnalytics,
@@ -477,5 +478,75 @@ describe('determinism preserved with analytics', () => {
     const i1 = computeInsights(state, od);
     const i2 = computeInsights(state, od);
     expect(i1).toEqual(i2);
+  });
+});
+
+describe('demand/gaps overlay is station-independent (issue #20)', () => {
+  /** Minimal GameState carrying just what buildDemandOverlay reads. */
+  function demandState(
+    districts: GameState['districts'],
+    flows: FlowResult[],
+  ): GameState {
+    return {
+      districts,
+      flows,
+      stations: [],
+      routes: [],
+      activeEvents: [],
+    } as unknown as GameState;
+  }
+
+  it('surfaces demand for far-apart pairs with NO stations and NO flows', () => {
+    // Four districts spread across the map; the assignment router would never
+    // enumerate served paths for any pair (there are no stations at all).
+    const districts = [
+      { id: 0, name: 'NW', centroid: { x: 0, y: 0 }, cellIndices: [], population: 5000, jobs: 200, landValue: 1 },
+      { id: 1, name: 'NE', centroid: { x: 6000, y: 0 }, cellIndices: [], population: 4000, jobs: 3000, landValue: 1 },
+      { id: 2, name: 'SW', centroid: { x: 0, y: 6000 }, cellIndices: [], population: 4500, jobs: 2500, landValue: 1 },
+      { id: 3, name: 'SE', centroid: { x: 6000, y: 6000 }, cellIndices: [], population: 3800, jobs: 4000, landValue: 1 },
+    ] as unknown as GameState['districts'];
+
+    const overlay = buildDemandOverlay(demandState(districts, []));
+
+    // Station-biased state.unserved would be empty here (no router paths); the
+    // baseline field must still show unmet demand.
+    expect(overlay.length).toBeGreaterThan(0);
+    // With zero served trips everywhere, every reported gap has share 0.
+    for (const l of overlay) expect(l.share).toBe(0);
+
+    // A long cross-map pair (NW -> SE, distance ~8485 m) must appear, i.e. the
+    // overlay is NOT limited to short trips clustered near infrastructure.
+    const nw = districts[0]!;
+    const se = districts[3]!;
+    const hasCrossMap = overlay.some(
+      (l) => l.x1 === nw.centroid.x && l.y1 === nw.centroid.y && l.x2 === se.centroid.x && l.y2 === se.centroid.y,
+    );
+    expect(hasCrossMap).toBe(true);
+  });
+
+  it('gap weight = baselineDemand × (1 − servedShare) from assignment flows', () => {
+    const districts = [
+      { id: 0, name: 'A', centroid: { x: 0, y: 0 }, cellIndices: [], population: 6000, jobs: 100, landValue: 1 },
+      { id: 1, name: 'B', centroid: { x: 1000, y: 0 }, cellIndices: [], population: 100, jobs: 5000, landValue: 1 },
+    ] as unknown as GameState['districts'];
+
+    const baseUnserved = buildDemandOverlay(demandState(districts, []));
+    const ab = baseUnserved.find((l) => l.x1 === 0 && l.x2 === 1000);
+    expect(ab).toBeDefined();
+    const baselineDemand = ab!.weight; // share 0 → weight == baseline trips
+    expect(baselineDemand).toBeGreaterThan(0);
+
+    // Now serve ~30% of that demand via transit; the gap must shrink to
+    // baseline × (1 − 0.3) and stay below the UNSERVED_SHARE_MAX cutoff.
+    const transit = baselineDemand * 0.3;
+    const served = buildDemandOverlay(
+      demandState(districts, [
+        { originDistrict: 0, destDistrict: 1, transitTrips: transit, carTrips: 0, transitCost: 10, routeIds: [], stationIds: [] },
+      ]),
+    );
+    const abServed = served.find((l) => l.x1 === 0 && l.x2 === 1000);
+    expect(abServed).toBeDefined();
+    expect(abServed!.share).toBeCloseTo(0.3, 5);
+    expect(abServed!.weight).toBeCloseTo(baselineDemand * 0.7, 4);
   });
 });
