@@ -26,16 +26,16 @@ export function Logo({ size = 40 }: { size?: number }): React.JSX.Element {
   );
 }
 
-/** Full lockup: mark + wordmark. */
+/** Full lockup: mark + wordmark (matches storefront nav). */
 export function Wordmark({ size = 28 }: { size?: number }): React.JSX.Element {
   return (
     <div className="flex items-center gap-2 select-none">
       <Logo size={size * 1.3} />
-      <span className="font-display font-semibold tracking-tight text-zinc-100" style={{ fontSize: size }}>
-        Metro<span className="text-amber-400">Forge</span>
+      <span className="font-display font-semibold tracking-tight text-[var(--mf-text,#f4f4f5)]" style={{ fontSize: size }}>
+        MetroForge
       </span>
     </div>
   );
 }
 
-export const TAGLINE = 'Build the network your city runs on.';
+export const TAGLINE = 'Try the toy version in your browser — the full city runs in the desktop game.';

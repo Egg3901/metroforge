@@ -5,6 +5,19 @@
   --font-display: 'Fraunces', 'DM Sans', ui-serif, Georgia, serif;
 }
 
+:root {
+  /* Shared with public/storefront.css */
+  --mf-bg: #0b0d10;
+  --mf-panel: #121620;
+  --mf-panel-border: #1f2530;
+  --mf-text: #f4f4f5;
+  --mf-text-dim: #9aa1ad;
+  --mf-green: #7ef29a;
+  --mf-blue: #54d0ff;
+  --mf-orange: #ffb63d;
+  --mf-red: #ff5d6c;
+}
+
 html,
 body,
 #root {
@@ -12,6 +25,8 @@ body,
   margin: 0;
   overscroll-behavior: none;
   font-family: var(--font-sans);
+  background: var(--mf-bg);
+  color: var(--mf-text);
 }
 
 .font-display {
@@ -20,4 +35,52 @@ body,
 
 canvas {
   display: block;
+}
+
+.toy-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--mf-panel-border);
+  color: var(--mf-text-dim);
+  letter-spacing: 0.02em;
+}
+
+@keyframes toySpokePulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  50% {
+    transform: scale(1.04);
+    filter: drop-shadow(0 0 18px rgba(84, 208, 255, 0.18));
+  }
+}
+
+.toy-spoke-pulse {
+  animation: toySpokePulse 3.2s ease-in-out infinite;
+}
+
+@keyframes toyCtaIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.toy-cta-in {
+  animation: toyCtaIn 320ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toy-spoke-pulse,
+  .toy-cta-in {
+    animation: none;
+  }
 }
