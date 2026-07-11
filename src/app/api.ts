@@ -5,7 +5,7 @@
 import type { ReplayPayload } from '@host/protocol';
 import type { StarMap } from '@content/campaign';
 
-const BASE = '/api';
+const BASE = 'api';
 const KEY = 'metroforge:account';
 
 export interface Account { name: string; token: string; }
