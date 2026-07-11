@@ -16,7 +16,7 @@ export const BACKPRESSURE_LIMIT_BYTES = 4 * 1024 * 1024;
 /** Frame kinds that may be silently dropped under backpressure. Everything
  *  else (hello, ready, staticMask, fields, ui, commandResult, trackCost,
  *  saved, replay, toast, bye) is never dropped. */
-const DROPPABLE_TYPES: ReadonlySet<string> = new Set(['frame', 'traffic', 'demand']);
+const DROPPABLE_TYPES: ReadonlySet<string> = new Set(['frame', 'traffic', 'demand', 'heatmap']);
 
 export interface Envelope {
   t: string;
@@ -272,3 +272,17 @@ export function encodeStaticBuildings(f: StaticBuildingsInput): ArrayBuffer {
   }
   return buf;
 }
+
+// ── msgType=6 HeatmapPayload (ridership analytics) ────────────────────────────
+//
+// Byte layout is owned by `@core/analytics` (encodeHeatmapPayload). Re-exported
+// here so the sidecar wire surface stays the single import for binary frames.
+// See src/core/analytics.ts file header for the precise 32-byte header layout.
+export {
+  encodeHeatmapPayload as encodeHeatmap,
+  decodeHeatmapPayload as decodeHeatmap,
+  HEATMAP_MSG_TYPE,
+  HEATMAP_VERSION,
+  HEATMAP_HEADER_BYTES,
+  type HeatmapPayload,
+} from '@core/analytics';
