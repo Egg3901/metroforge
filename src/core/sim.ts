@@ -216,7 +216,7 @@ function allStopDistances(
   for (const sid of route.stationIds) {
     const s = state.stations.find((st) => st.id === sid);
     if (!s) continue;
-    for (const d of nearestAlong(path, s)) out.push(d);
+    for (const d of nearestAlong(path, s, state.instanceId)) out.push(d);
   }
   out.sort((a, b) => a - b);
   // de-dupe near-identical stops (out-and-back joints)
@@ -238,8 +238,10 @@ function nextStopAhead(stops: number[], along: number, pathLen: number): number 
 
 /** Distances along an out-and-back path where the path passes near a station. */
 const stopDistCache = new Map<string, number[]>();
-function nearestAlong(path: { points: { x: number; y: number }[]; cumulative: number[]; length: number }, s: Station): number[] {
-  const key = `${s.id}:${path.length.toFixed(1)}`;
+function nearestAlong(path: { points: { x: number; y: number }[]; cumulative: number[]; length: number }, s: Station, instanceId: number): number[] {
+  // key is scoped to the game instance: entity ids reset per newGame, so a bare
+  // `id:length` key would collide across games sharing this process (replay/sidecar).
+  const key = `${instanceId}:${s.id}:${path.length.toFixed(1)}`;
   const hit = stopDistCache.get(key);
   if (hit) return hit;
   const out: number[] = [];

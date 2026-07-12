@@ -2,6 +2,7 @@ import { STARTING_CASH } from './constants';
 import { generateCity } from './city/generator';
 import { MAP_SIZE_METERS, presetByKey, type MapSize } from './city/presets';
 import type { OsmCityData } from './city/osmCity';
+import { nextInstanceId } from './instance';
 import { Rng } from './rng';
 import type { ScenarioDef } from './scenario/types';
 import { rulesFromScenario } from './scenario/evaluate';
@@ -37,6 +38,7 @@ export function newGame(seed: number, difficulty: Difficulty, options: NewGameOp
   const startingModes: TransitMode[] = rules?.startingModes?.length ? [...rules.startingModes] : ['bus'];
   const state: GameState = {
     seed,
+    instanceId: nextInstanceId(),
     tick: 0,
     rngState: rng.state(),
     difficulty,
