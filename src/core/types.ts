@@ -205,6 +205,12 @@ export interface GameState {
   osmLabels?: import('./city/osmCity').MapLabel[] | undefined;
   budget: Budget;
   stats: CityStats;
+  /**
+   * Transient per-process game instance id (see ./instance.ts). Scopes
+   * process-global geometry caches to one game so a prior game in the same
+   * process cannot leak into this one. Never serialized; never hashed.
+   */
+  instanceId: number;
   /** monotonic entity id counter */
   nextId: number;
   /** set when land use / network changed; assignment reruns on next demand pass */

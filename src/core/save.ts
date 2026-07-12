@@ -5,6 +5,7 @@
  */
 import { fieldsFromJSON, fieldsToJSON } from './fields';
 import { makePolyline } from './geometry';
+import { nextInstanceId } from './instance';
 import { getBankruptDays, setBankruptDays } from './sim';
 import type { GameState, RoadEdge, TrackSegment } from './types';
 
@@ -21,6 +22,7 @@ export function serialize(state: GameState): string {
     osmBuildingMask: _b,
     osmMaskRes: _r,
     osmLabels: _l,
+    instanceId: _i,
     ...persist
   } = state;
   return JSON.stringify({
@@ -57,6 +59,7 @@ export function deserialize(json: string): GameState {
   };
   const restored: GameState = {
     ...s,
+    instanceId: nextInstanceId(),
     activeEvents: s.activeEvents ?? [],
     nextEventDay: s.nextEventDay ?? 8,
     commandLog: s.commandLog ?? [],

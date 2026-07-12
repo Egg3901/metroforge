@@ -6,15 +6,19 @@ import { makePolyline } from '../geometry';
 import type { Polyline, Vec2 } from '../geometry';
 import type { GameState, RouteDef } from '../types';
 
-const cache = new Map<number, { key: string; path: Polyline }>();
+const cache = new Map<string, { key: string; path: Polyline }>();
 
 export function clearRoutePathCache(): void {
   cache.clear();
 }
 
 export function getRoutePath(state: GameState, route: RouteDef): Polyline | null {
+  // scope the memo to the game instance + route: entity ids reset per newGame, so a
+  // bare route.id key would return another game's stale polyline when one process
+  // serves multiple games (sidecar/replay).
+  const cacheKey = `${state.instanceId}:${route.id}`;
   const key = route.segmentIds.join(',');
-  const hit = cache.get(route.id);
+  const hit = cache.get(cacheKey);
   if (hit && hit.key === key) return hit.path;
 
   const outbound: Vec2[] = [];
@@ -31,6 +35,6 @@ export function getRoutePath(state: GameState, route: RouteDef): Polyline | null
   if (outbound.length < 2) return null;
   const back = [...outbound].reverse().slice(1);
   const path = makePolyline([...outbound, ...back]);
-  cache.set(route.id, { key, path });
+  cache.set(cacheKey, { key, path });
   return path;
 }
