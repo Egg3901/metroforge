@@ -1,9 +1,5 @@
 # Lean self-hosted CI (Woodpecker on Hetzner, workflows.[REDACTED]game.com).
-# Matches the [REDACTED] repo's pipeline: local/exec backend, no
-# host-path `volumes:` mounts (those need repo "trust" and were flaky here in
-# practice — see [REDACTED]'s .woodpecker.yml for the incident). No
-# `build`/`vite build` step — typecheck + test gate correctness; the actual
-# build happens at deploy time.
+# Storefront-only repo: typecheck + build gate correctness; deploy builds dist/.
 
 when:
   - event: pull_request
@@ -26,19 +22,7 @@ steps:
     commands: [npm run typecheck]
     depends_on: [install]
 
-  validate-scenarios:
+  build:
     image: sh
-    commands:
-      - |
-        if ! command -v bun >/dev/null 2>&1; then
-          curl -fsSL https://bun.sh/install | bash
-          export BUN_INSTALL="$HOME/.bun"
-          export PATH="$BUN_INSTALL/bin:$PATH"
-        fi
-        bun run validate-scenarios
-    depends_on: [install]
-
-  test:
-    image: sh
-    commands: [npm run test]
+    commands: [npm run build]
     depends_on: [install]
