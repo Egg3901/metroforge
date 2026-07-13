@@ -3,5 +3,3 @@ dist/
 *.log
 grader/
 .cache/
-server/data.db
-server/lib/
