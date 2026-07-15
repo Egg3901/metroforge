@@ -3,13 +3,159 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MetroForge: build the city, run the system</title>
-    <meta name="description" content="MetroForge is a native 3D city builder. Real map data, real transit simulation, runs on a potato. Free download for Windows, macOS, and Linux." />
-    <link rel="canonical" href="/" />
-    <meta http-equiv="refresh" content="0; url=/" />
-    <script>window.location.replace('/');</script>
+    <title>Download MetroForge</title>
+    <meta
+      name="description"
+      content="Download MetroForge for Windows, macOS, and Linux. A native 3D city builder with real map data and a real transit simulation, tuned to run on a potato."
+    />
+    <link rel="canonical" href="/download.html" />
+    <style>
+      :root {
+        --bg: #0a0f14;
+        --bg-2: #0d141c;
+        --panel: #111b26;
+        --panel-2: #16222e;
+        --line: #22303c;
+        --text: #eaf0f6;
+        --muted: #9fb0bf;
+        --accent: #21c8a0;
+        --blue: #54d0ff;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+        min-height: 100vh;
+      }
+      a { color: inherit; }
+      .wrap { max-width: 880px; margin: 0 auto; padding: 28px 20px 64px; }
+      .nav { display: flex; align-items: center; justify-content: space-between; padding-bottom: 40px; }
+      .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 700; letter-spacing: 0.2px; }
+      .brand img { width: 26px; height: 26px; }
+      .back { color: var(--muted); text-decoration: none; font-size: 14px; }
+      .back:hover { color: var(--text); }
+      h1 { font-family: 'Fraunces', Georgia, serif; font-size: clamp(30px, 5vw, 46px); margin: 0 0 8px; }
+      .sub { color: var(--muted); font-size: 17px; margin: 0 0 4px; }
+      .ver { color: var(--accent); font-size: 14px; font-weight: 600; margin: 0 0 32px; }
+      .primary-slot { margin: 0 0 30px; }
+      .primary {
+        display: inline-flex; align-items: baseline; gap: 12px;
+        background: var(--accent); color: #05100c; text-decoration: none;
+        font-weight: 700; font-size: 18px; padding: 16px 26px; border-radius: 12px;
+        border: 1px solid transparent; transition: filter 0.15s ease;
+      }
+      .primary:hover { filter: brightness(1.08); }
+      .primary .note { font-weight: 500; font-size: 13px; opacity: 0.8; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 10px; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+      .card.you { border-color: var(--accent); }
+      .card h2 { margin: 0 0 12px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+      .card h2 .tag { font-size: 11px; font-weight: 600; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px; }
+      .dl { display: block; text-decoration: none; color: var(--blue); font-size: 15px; padding: 7px 0; border-top: 1px solid var(--line); }
+      .card .dl:first-of-type { border-top: 0; }
+      .dl:hover { color: var(--text); }
+      .dl .meta { color: var(--muted); font-size: 12px; }
+      .foot { margin-top: 34px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+      .foot a { color: var(--blue); text-decoration: none; }
+    </style>
   </head>
   <body>
-    <p>The download page has moved. <a href="/">Continue to MetroForge</a>.</p>
+    <div class="wrap">
+      <div class="nav">
+        <a class="brand" href="/">
+          <img src="/lakeside-mark.svg" alt="" />
+          MetroForge
+        </a>
+        <a class="back" href="/">Back to the site</a>
+      </div>
+
+      <h1>Download MetroForge</h1>
+      <p class="sub">Native 3D city builder. Real map data, a real transit simulation, runs on a potato.</p>
+      <p class="ver">Version 1.0.0</p>
+
+      <div class="primary-slot" id="primary-slot">
+        <!-- OS-detected primary button injected here; falls back to the grid below -->
+      </div>
+
+      <div class="grid">
+        <div class="card" data-os="windows">
+          <h2>Windows <span class="tag" data-tag="windows" hidden>Your system</span></h2>
+          <a class="dl" href="https://github.com/Egg3901/metroforge-native/releases/download/v1.0.0/metroforge-1.0.0-windows-x64-setup.exe">
+            Installer (.exe) <span class="meta">setup with Start Menu shortcuts</span>
+          </a>
+          <a class="dl" href="https://github.com/Egg3901/metroforge-native/releases/download/v1.0.0/metroforge-1.0.0-windows-x64.zip">
+            Portable (.zip) <span class="meta">unzip and run</span>
+          </a>
+        </div>
+
+        <div class="card" data-os="mac">
+          <h2>macOS <span class="tag" data-tag="mac" hidden>Your system</span></h2>
+          <a class="dl" href="https://github.com/Egg3901/metroforge-native/releases/download/v1.0.0/metroforge-1.0.0-macos-arm64.dmg">
+            Disk image (.dmg) <span class="meta">Apple Silicon</span>
+          </a>
+          <a class="dl" href="https://github.com/Egg3901/metroforge-native/releases/download/v1.0.0/metroforge-1.0.0-macos-arm64.zip">
+            Archive (.zip) <span class="meta">Apple Silicon</span>
+          </a>
+        </div>
+
+        <div class="card" data-os="linux">
+          <h2>Linux <span class="tag" data-tag="linux" hidden>Your system</span></h2>
+          <a class="dl" href="https://github.com/Egg3901/metroforge-native/releases/download/v1.0.0/metroforge-1.0.0-linux-x64.tar.gz">
+            Archive (.tar.gz) <span class="meta">x86_64, extract and run ./metroforge</span>
+          </a>
+        </div>
+      </div>
+
+      <p class="foot">
+        MetroForge auto detects your GPU and scales quality down to integrated graphics.
+        Builds are not code signed yet, so Windows SmartScreen and macOS Gatekeeper may warn on first launch.
+        All releases and checksums live on
+        <a href="https://github.com/Egg3901/metroforge-native/releases/latest">GitHub</a>.
+      </p>
+    </div>
+
+    <script>
+      (function () {
+        var p = (navigator.platform || '') + ' ' + (navigator.userAgent || '');
+        var os = 'linux';
+        if (/Win/i.test(p)) os = 'windows';
+        else if (/Mac|iPhone|iPad|iPod/i.test(p)) os = 'mac';
+        else if (/Android|Linux/i.test(p)) os = 'linux';
+
+        var primary = {
+          windows: {
+            href: 'https://github.com/Egg3901/metroforge-native/releases/download/v1.0.0/metroforge-1.0.0-windows-x64-setup.exe',
+            label: 'Download for Windows',
+            note: '.exe installer',
+          },
+          mac: {
+            href: 'https://github.com/Egg3901/metroforge-native/releases/download/v1.0.0/metroforge-1.0.0-macos-arm64.dmg',
+            label: 'Download for macOS',
+            note: '.dmg, Apple Silicon',
+          },
+          linux: {
+            href: 'https://github.com/Egg3901/metroforge-native/releases/download/v1.0.0/metroforge-1.0.0-linux-x64.tar.gz',
+            label: 'Download for Linux',
+            note: '.tar.gz, x86_64',
+          },
+        }[os];
+
+        var slot = document.getElementById('primary-slot');
+        if (slot && primary) {
+          var a = document.createElement('a');
+          a.className = 'primary';
+          a.href = primary.href;
+          a.innerHTML = primary.label + ' <span class="note">' + primary.note + '</span>';
+          slot.appendChild(a);
+        }
+
+        var tag = document.querySelector('.tag[data-tag="' + os + '"]');
+        if (tag) tag.hidden = false;
+        var card = document.querySelector('.card[data-os="' + os + '"]');
+        if (card) card.classList.add('you');
+      })();
+    </script>
   </body>
 </html>
