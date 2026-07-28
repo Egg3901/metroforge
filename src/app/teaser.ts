@@ -12,8 +12,8 @@ export const TOY_CITY_LABEL = 'Cleveland';
 /** Wall-clock play time before the non-blocking download banner appears. */
 export const TOY_CTA_AFTER_MS = 2 * 60 * 1000;
 
-export const TOY_HEADLINE = 'Run transit through a real city';
-export const TOY_SUBLINE = 'A two minute slice of MetroForge, playable right here.';
+export const TOY_HEADLINE = 'Run transit through a real city: toy version';
+export const TOY_SUBLINE = 'A two minute slice of MetroForge, the desktop game, playable right here.';
 
 export const TOY_BLURB =
   'Place stations, draw a route through downtown Cleveland, and watch the buses pick people up.';

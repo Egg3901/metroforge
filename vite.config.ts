@@ -29,12 +29,10 @@ export default defineConfig({
     teardownTimeout: 60_000,
     // long scenario playthroughs can stall the threads RPC; forks isolate better
     pool: 'forks',
+    // Core/sim suites stay on node; toy mount smoke opts into jsdom via pragma.
+    environment: 'node',
   },
   preview: {
     allowedHosts: ['transit.ahousedividedgame.com', 'localhost', '127.0.0.1'],
-  },
-  test: {
-    // Core/sim suites stay on node; toy mount smoke opts into jsdom via pragma.
-    environment: 'node',
   },
 });
